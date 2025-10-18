@@ -1,1 +1,0 @@
-/* TODO: Implement the API route to fetch the assets for the account */
