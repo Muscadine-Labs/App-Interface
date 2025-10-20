@@ -16,14 +16,18 @@ export default function WalletOverview() {
     const truncatedAddress = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
     const formattedBalance = balance ? 
     parseFloat(balance.formatted).toString() : '0';
-    const { eth: ethPrice } = usePrices();
+    const { eth: ethPrice, loading: priceLoading } = usePrices();
+    
+    // Check if we have cached data in localStorage to avoid flashing
+    const hasCachedData = typeof window !== 'undefined' && localStorage.getItem('crypto-prices');
+    
     const usdValue = ethPrice && balance ? 
         (parseFloat(balance.formatted) * ethPrice).toLocaleString('en-US', {
             style: 'currency',
             currency: 'USD'
         }) : null;
     return (
-        <div className="flex flex-col items-start justify-start w-full h-full bg-[var(--surface)] rounded-lg px-8 py-4 gap-6 min-w-md overflow-x-auto">
+        <div className="flex flex-col items-start justify-start w-full h-full bg-[var(--surface)] rounded-lg px-8 py-4 gap-6 overflow-x-auto">
             <div className="flex items-center gap-2">
                 {isConnected && walletInfo?.icon && (
                     <Image 
@@ -48,7 +52,7 @@ export default function WalletOverview() {
                         Balance
                     </h1>
                     <h1 className="text-3xl font-bold">
-                        {usdValue || `${formattedBalance} ${balance?.symbol || 'ETH'}`}
+                        {priceLoading && !hasCachedData ? '$0.00' : (usdValue || `$${formattedBalance} USD`)}
                     </h1>
                 </div>
                 <div className="flex flex-col items-start">

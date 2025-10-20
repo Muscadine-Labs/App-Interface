@@ -21,8 +21,34 @@ export function PriceProvider({ children }: { children: ReactNode }) {
     const { data, error, isLoading } = useQuery({
       queryKey: ['crypto-prices'],
       queryFn: async () => {
-        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd');
-        return response.json();
+        // Try to get cached data from localStorage first
+        const cachedData = localStorage.getItem('crypto-prices');
+        const cachedTimestamp = localStorage.getItem('crypto-prices-timestamp');
+        const now = Date.now();
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+        // If we have cached data that's still fresh, return it immediately
+        if (cachedData && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION) {
+          return JSON.parse(cachedData);
+        }
+
+        // Fetch fresh data from API
+        const response = await fetch('/api/prices');
+        if (!response.ok) {
+          // If API fails but we have cached data (even stale), use it
+          if (cachedData) {
+            return JSON.parse(cachedData);
+          }
+          throw new Error('Failed to fetch prices');
+        }
+        
+        const freshData = await response.json();
+        
+        // Cache the fresh data in localStorage
+        localStorage.setItem('crypto-prices', JSON.stringify(freshData));
+        localStorage.setItem('crypto-prices-timestamp', now.toString());
+        
+        return freshData;
       },
       staleTime: 5 * 60 * 1000, // 5 minutes
       refetchInterval: 5 * 60 * 1000, // 5 minutes
@@ -30,8 +56,8 @@ export function PriceProvider({ children }: { children: ReactNode }) {
     });
   
     const prices = {
-      btc: data?.bitcoin?.usd || null,
-      eth: data?.ethereum?.usd || null,
+      btc: data?.bitcoin || null,
+      eth: data?.ethereum || null,
       loading: isLoading,
       error: error?.message || null
     };

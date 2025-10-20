@@ -1,63 +1,81 @@
-import Image from "next/image";
-import Link from "next/link";
+'use client';
+
+import React, { useCallback } from 'react';
+import { usePathname } from "next/navigation";
+import PromoteLearn from "./PromoteLearn";
+import { NavLink } from "./NavLink";
+import { navigationItems, NavItem } from "@/config/navigation";
+import ConnectButton from "./ConnectButton";
+import { useNavBar } from "@/contexts/NavBarContext";
 
 export function NavBar() {
-    return (
-        <div id="navbar" className="flex flex-col fixed top-0 left-0 w-[var(--navbar-width)] h-screen bg-[var(--background)] p-4">
-            <div className="flex items-center justify-start gap-2 p-2">
-                <Image src="/favicon.png" alt="Muscadine" width={16} height={16} className="rounded-full"/>
-                <Link href="https://muscadine.box" className="text-xs">Muscadine</Link>
-            </div>
-            <div className="flex flex-col items-center justify-center gap-2 mt-6">
-                <button className="flex items-center justify-start gap-2 w-full p-2">
-                <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    viewBox="0 0 24 24" 
-                    className="w-4 h-4 text-foreground"
-                    fill="currentColor"
-                    >
-                    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
-                </svg>
-                    <p className="text-xs">Home</p>
-                </button>
-                <button className="flex items-center justify-start gap-2 w-full p-2">
-                <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    viewBox="0 0 24 24" 
-                    className="w-4 h-4" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round"
-                    >
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                    <rect x="7" y="8" width="10" height="8" rx="1" ry="1"/>
-                    <path d="M12 8v8"/>
-                    <path d="M8 12h8"/>
-                    </svg>
-                    <p className="text-xs">Vaults</p>
-                </button>
-                <button className="flex items-center justify-start gap-2 w-full p-2">
-                <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                viewBox="0 0 24 24" 
-                className="w-4 h-4" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-                >
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                </svg>
-                    <p className="text-xs">Learn</p>
-                </button>
+    const { isCollapsed, toggleCollapse } = useNavBar();
+    const pathname = usePathname();
 
+    const isActive = useCallback((item: NavItem): boolean => {
+        if (item.matchPattern === 'exact') {
+            return pathname === item.href;
+        }
+        // Default to startsWith for nested routes
+        return pathname.startsWith(item.href);
+    }, [pathname]);
+
+    // Update CSS variables when navbar state changes
+    React.useEffect(() => {
+        const root = document.documentElement;
+        if (isCollapsed) {
+            root.style.setProperty('--main-margin-left', 'var(--navbar-collapsed-width)');
+            root.style.setProperty('--main-width', 'calc(100vw - var(--navbar-collapsed-width))');
+        } else {
+            root.style.setProperty('--main-margin-left', 'var(--navbar-width)');
+            root.style.setProperty('--main-width', 'calc(100vw - var(--navbar-width))');
+        }
+    }, [isCollapsed]);
+
+    return (
+        <div 
+            id="navbar" 
+            className={`flex flex-col fixed top-0 left-0 h-screen bg-[var(--background-muted)] py-4 transition-all duration-300 border-r border-[var(--border)] ${
+                isCollapsed ? 'w-[var(--navbar-collapsed-width)] p-3' : 'w-[var(--navbar-width)] p-4'
+            }`}
+        >
+            {/* Header with ConnectButton */}
+            <div className="flex items-center justify-between">
+                <div className="flex-1" onClick={(e) => e.stopPropagation()}>
+                    <ConnectButton isCollapsed={isCollapsed} />
+                </div>
+            </div>
+
+            {/* Vertical Toggle Bar - Positioned on right border, centered vertically */}
+            <div className="absolute right-0 top-1/2 transform -translate-y-1/2">
+                <button
+                    onClick={toggleCollapse}
+                    className="w-2 h-20 bg-[var(--border)] hover:bg-[var(--border-strong)] rounded-full transition-colors flex items-center justify-center group translate-x-1/2"
+                >
+                    <div className="w-2 h-2 bg-[var(--foreground-secondary)] rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+            </div>
+
+            <div className="flex flex-col justify-between h-full gap-2">
+                <nav className="flex flex-col items-center justify-center gap-2 mt-6 w-full" role="navigation" aria-label="Main navigation">
+                    {navigationItems.map((item) => (
+                        <div key={item.id} onClick={(e) => e.stopPropagation()} className="w-full">
+                            <NavLink 
+                                item={item}
+                                isActive={isActive(item)}
+                                isCollapsed={isCollapsed}
+                            />
+                        </div>
+                    ))}
+                </nav>
+
+                {/* PromoteLearn section - hide when collapsed */}
+                {isCollapsed ? <div></div>: (
+                    <div className="flex flex-col items-center justify-center gap-2 mt-6">
+                        <PromoteLearn />
+                    </div>
+                )}
             </div>
         </div>
-
-
-
-    )};
+    );
+}
