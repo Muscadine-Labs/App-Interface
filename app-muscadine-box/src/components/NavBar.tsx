@@ -1,16 +1,26 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback } from 'react';
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import PromoteLearn from "./PromoteLearn";
+import { NavLink } from "./NavLink";
+import { navigationItems, NavItem } from "@/config/navigation";
+import ConnectButton from "./ConnectButton";
+import { useNavBar } from "@/contexts/NavBarContext";
 
 export function NavBar() {
-    const [isCollapsed, setIsCollapsed] = useState(false);
+    const { isCollapsed, toggleCollapse } = useNavBar();
+    const pathname = usePathname();
 
-    const toggleCollapse = () => {
-        setIsCollapsed(!isCollapsed);
-    };
+    const isActive = useCallback((item: NavItem): boolean => {
+        if (item.matchPattern === 'exact') {
+            return pathname === item.href;
+        }
+        // Default to startsWith for nested routes
+        return pathname.startsWith(item.href);
+    }, [pathname]);
 
     // Update CSS variables when navbar state changes
     React.useEffect(() => {
@@ -29,26 +39,17 @@ export function NavBar() {
             id="navbar" 
             className={`flex flex-col fixed top-0 left-0 h-screen bg-[var(--background)] py-4 transition-all duration-300 ${
                 isCollapsed ? 'w-[var(--navbar-collapsed-width)] pl-2' : 'w-[var(--navbar-width)] pl-4 justify-start'
-            }`}onClick={isCollapsed ? (e) => {
-                e.preventDefault();
-                toggleCollapse();
-            } : undefined}
+            }`}
         >
-            {/* Header with logo and toggle button */}
-            <div className="flex items-center justify-between p-2">
-                {!isCollapsed && (
-                    <Link 
-                        href="https://muscadine.io" 
-                        className="flex items-center gap-2 hover:bg-[var(--surface-hover)] rounded p-1 transition-colors"
-                    >
-                        <Image src="/favicon.png" alt="Muscadine" width={16} height={16} className="rounded-full"/>
-                        <span className="text-xs whitespace-nowrap">Muscadine</span>
-                    </Link>
-                )}
+            {/* Header with ConnectButton and toggle button */}
+            <div className="flex items-center justify-between">
+                <div className="flex-1">
+                    <ConnectButton isCollapsed={isCollapsed} />
+                </div>
                 
                 <button 
                     onClick={toggleCollapse}
-                    className="hover:bg-[var(--surface-hover)] rounded transition-colors"
+                    className="hover:bg-[var(--surface-hover)] rounded transition-colors -mr-2 p-1"
                 >
                     <svg 
                         xmlns="http://www.w3.org/2000/svg" 
@@ -66,61 +67,16 @@ export function NavBar() {
             </div>
 
             <div className="flex flex-col justify-between h-full gap-2">
-                <div className="flex flex-col items-center justify-center gap-2 mt-6">
-                    <button className={`flex items-center gap-2 w-full p-2 hover:bg-[var(--surface-hover)] rounded transition-colors ${
-                        isCollapsed ? 'justify-center' : 'justify-start'
-                    }`}>
-                        <svg 
-                            xmlns="http://www.w3.org/2000/svg" 
-                            viewBox="0 0 24 24" 
-                            className="w-4 h-4 text-foreground"
-                            fill="currentColor"
-                        >
-                            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
-                        </svg>
-                        {!isCollapsed && <p className="text-xs">Home</p>}
-                    </button>
-                    
-                    <button className={`flex items-center gap-2 w-full p-2 hover:bg-[var(--surface-hover)] rounded transition-colors ${
-                        isCollapsed ? 'justify-center' : 'justify-start'
-                    }`}>
-                        <svg 
-                            xmlns="http://www.w3.org/2000/svg" 
-                            viewBox="0 0 24 24" 
-                            className="w-4 h-4" 
-                            fill="none" 
-                            stroke="currentColor" 
-                            strokeWidth="2" 
-                            strokeLinecap="round" 
-                            strokeLinejoin="round"
-                        >
-                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                            <rect x="7" y="8" width="10" height="8" rx="1" ry="1"/>
-                            <path d="M12 8v8"/>
-                            <path d="M8 12h8"/>
-                        </svg>
-                        {!isCollapsed && <p className="text-xs">Vaults</p>}
-                    </button>
-                    
-                    <button className={`flex items-center gap-2 w-full p-2 hover:bg-[var(--surface-hover)] rounded transition-colors ${
-                        isCollapsed ? 'justify-center' : 'justify-start'
-                    }`}>
-                        <svg 
-                            xmlns="http://www.w3.org/2000/svg" 
-                            viewBox="0 0 24 24" 
-                            className="w-4 h-4" 
-                            fill="none" 
-                            stroke="currentColor" 
-                            strokeWidth="2" 
-                            strokeLinecap="round" 
-                            strokeLinejoin="round"
-                        >
-                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                        </svg>
-                        {!isCollapsed && <p className="text-xs">Learn</p>}
-                    </button>
-                </div>
+                <nav className="flex flex-col items-center justify-center gap-2 mt-6" role="navigation" aria-label="Main navigation">
+                    {navigationItems.map((item) => (
+                        <NavLink 
+                            key={item.id}
+                            item={item}
+                            isActive={isActive(item)}
+                            isCollapsed={isCollapsed}
+                        />
+                    ))}
+                </nav>
 
                 {/* PromoteLearn section - hide when collapsed */}
                 {isCollapsed ? <div></div>: (

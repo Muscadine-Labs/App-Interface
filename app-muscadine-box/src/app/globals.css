@@ -103,7 +103,23 @@
   }
 }
 
-button:hover {
-  background-color: var(--surface);
-  border-radius: 9999px;
+
+/* Fade-in animation to prevent flash on load */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* Smooth page transitions */
+body {
+  opacity: 1;
+  transition: opacity 0.2s ease-in-out;
 }
