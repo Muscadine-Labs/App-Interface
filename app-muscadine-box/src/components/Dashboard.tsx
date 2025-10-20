@@ -1,13 +1,11 @@
 import LeftDashboardSection from "@/components/LeftDashboardSection";
 import WalletOverview from "./WalletOverview";
-import RightSidebar from "./RightSidebar";
 import { useState } from "react";
 import VaultDetailed from "./VaultDetailed";
 import { Vault } from "../types/vault";
 import { useNavBar } from "@/contexts/NavBarContext";
 
 export default function Dashboard() {
-    const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
     const [selectedVault, setSelectedVault] = useState<Vault | null>(null);
     const { isCollapsed: isNavbarCollapsed } = useNavBar();
     return (
