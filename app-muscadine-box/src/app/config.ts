@@ -3,6 +3,7 @@ import { createStorage, cookieStorage } from 'wagmi'
 import { base } from 'wagmi/chains'
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi'
 import { createAppKit } from '@reown/appkit/react'
+import { http } from 'viem'
 
 const projectId = process.env.NEXT_PUBLIC_PROJECT_ID
 if (!projectId) throw new Error('REOWN_PROJECT_ID is not set')
@@ -11,8 +12,29 @@ if (!projectId) throw new Error('REOWN_PROJECT_ID is not set')
 const metadata = {
   name: 'Muscadine',
   description: 'Muscadine App',
-  url: 'https://muscadine.box',
+  url: 'https://muscadine.io',
   icons: ['/favicon.png'],
+}
+
+// Custom Base chain with reliable RPC endpoints
+const baseWithCustomRpc = {
+  ...base,
+  rpcUrls: {
+    default: {
+      http: [
+        'https://mainnet.base.org',
+        'https://base-mainnet.g.alchemy.com/v2/demo',
+        'https://base.blockpi.network/v1/rpc/public'
+      ]
+    },
+    public: {
+      http: [
+        'https://mainnet.base.org',
+        'https://base-mainnet.g.alchemy.com/v2/demo',
+        'https://base.blockpi.network/v1/rpc/public'
+      ]
+    }
+  }
 }
 
 // Custom storage that uses localStorage in browser and cookies for SSR
@@ -51,14 +73,14 @@ export const wagmiAdapter = new WagmiAdapter({
   storage: createHybridStorage(),
   ssr: true,
   projectId,
-  networks: [base],
+  networks: [baseWithCustomRpc],
 })
 
 // AppKit instance
 export const appKit = createAppKit({
   adapters: [wagmiAdapter],
   projectId,
-  networks: [base],
+  networks: [baseWithCustomRpc],
   metadata,
   featuredWalletIds: [
     'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa',
