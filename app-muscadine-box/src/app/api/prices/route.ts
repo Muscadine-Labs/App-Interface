@@ -9,6 +9,8 @@ const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
   'DAI': 'dai',
   'WETH': 'ethereum',
   'WBTC': 'wrapped-bitcoin',
+  'CBBTC': 'bitcoin', // cbBTC maps to Bitcoin price
+  'CBTC': 'bitcoin', // cBTC also maps to Bitcoin price
 };
 
 // In-memory cache for prices

@@ -3,22 +3,47 @@
 import React, { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
 import { NavLink } from "./NavLink";
+import { VaultsDropdown } from "./VaultsDropdown";
 import { navigationItems, NavItem } from "@/config/navigation";
 import { ConnectButton } from "../features/wallet";
 import { useTab } from "@/contexts/TabContext";
 
 export function NavBar() {
     const { activeTab, setActiveTab } = useTab();
+    const router = useRouter();
+    const pathname = usePathname();
 
     const isActive = useCallback((item: NavItem): boolean => {
-        // All items are now internal tabs
+        // Vaults dropdown is active if we're on a vault page
+        if (item.id === 'vaults') {
+            return pathname?.startsWith('/vaults/') || false;
+        }
+        // Dashboard is active if we're on the home page
+        if (item.id === 'dashboard') {
+            return pathname === '/';
+        }
+        // Learn is active if we're on the learn page (or use activeTab as fallback)
+        if (item.id === 'learn') {
+            return pathname?.startsWith('/learn') || item.id === activeTab;
+        }
+        // Fallback to activeTab for other items
         return item.id === activeTab;
-    }, [activeTab]);
+    }, [activeTab, pathname]);
 
     const handleNavClick = useCallback((item: NavItem) => {
+        // Skip handling for vaults dropdown (it handles its own navigation)
+        if (item.id === 'vaults') {
+            return;
+        }
+        // If clicking dashboard and we're on a vault detail page, navigate to home
+        if (item.id === 'dashboard' && pathname?.startsWith('/vaults/')) {
+            router.push('/');
+        }
+        // Set the active tab
         setActiveTab(item.id as 'dashboard' | 'learn');
-    }, [setActiveTab]);
+    }, [setActiveTab, router, pathname]);
 
     return (
         <div 
@@ -51,11 +76,15 @@ export function NavBar() {
                     <nav className="flex items-center gap-2" role="navigation" aria-label="Main navigation">
                         {navigationItems.map((item) => (
                             <div key={item.id} onClick={(e) => e.stopPropagation()}>
-                                <NavLink 
-                                    item={item}
-                                    isActive={isActive(item)}
-                                    onClick={() => handleNavClick(item)}
-                                />
+                                {item.id === 'vaults' ? (
+                                    <VaultsDropdown isActive={isActive(item)} />
+                                ) : (
+                                    <NavLink 
+                                        item={item}
+                                        isActive={isActive(item)}
+                                        onClick={() => handleNavClick(item)}
+                                    />
+                                )}
                             </div>
                         ))}
                     </nav>

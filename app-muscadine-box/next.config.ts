@@ -12,7 +12,6 @@ const nextConfig: NextConfig = {
         hostname: "static.alchemyapi.io",
       },
     ],
-    // Or use domains: ['static.alchemyapi.io']
   },
 };
 

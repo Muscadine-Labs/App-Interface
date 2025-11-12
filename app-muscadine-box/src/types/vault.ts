@@ -38,6 +38,11 @@ export interface Vault {
     
     // Market Information
     allocatedMarkets?: string[];
+    // Market assets with addresses for logo fetching
+    marketAssets?: Array<{
+        symbol: string;
+        address?: string;
+    }>;
     
     // Additional Info
     description?: string;

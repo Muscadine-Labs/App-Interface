@@ -4,6 +4,9 @@ import { useVaultData } from '../../../contexts/VaultDataContext';
 import { useWallet } from '../../../contexts/WalletContext';
 import { formatSmartCurrency } from '../../../lib/formatter';
 import { useElementTracker } from '../../../hooks/useElementTracker';
+import { useRouter, usePathname } from 'next/navigation';
+import { getVaultRoute } from '../../../lib/vault-utils';
+
 interface VaultListCardProps {
     vault: Vault;
     onClick?: (vault: Vault) => void;
@@ -13,9 +16,15 @@ interface VaultListCardProps {
 export default function VaultListCard({ vault, onClick, isSelected }: VaultListCardProps) {
     const { getVaultData, isLoading } = useVaultData();
     const { morphoHoldings } = useWallet();
+    const router = useRouter();
+    const pathname = usePathname();
     const vaultData = getVaultData(vault.address);
     const loading = isLoading(vault.address);
     const { onHoverStart, onHoverEnd } = useElementTracker({ component: 'VaultListCard' });
+    
+    // Check if this vault is active based on the current route
+    const vaultRoute = getVaultRoute(vault.address);
+    const isActive = pathname === vaultRoute || isSelected;
 
     // Find user's position in this vault
     const userPosition = morphoHoldings.positions.find(
@@ -26,16 +35,26 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     const userPositionValue = userPosition ? 
         (parseFloat(userPosition.shares) / 1e18) * userPosition.vault.state.sharePriceUsd : 0;
 
+    const handleClick = () => {
+        // If onClick prop is provided (legacy behavior), use it
+        if (onClick) {
+            onClick(vault);
+        } else {
+            // Otherwise, navigate to the vault route
+            router.push(vaultRoute);
+        }
+    };
+
     return (
         <div 
             className={`flex items-center justify-between w-full cursor-pointer transition-all p-6 min-w-[320px] ${
-                isSelected 
+                isActive 
                     ? 'bg-[var(--primary-subtle)] border-2 border-[var(--primary)] shadow-md rounded-lg' 
                     : 'hover:bg-[var(--surface-hover)] rounded-lg'
             }`}
             onMouseEnter={() => onHoverStart('vault-cards')}
             onMouseLeave={() => onHoverEnd('vault-cards')}
-            onClick={() => onClick?.(vault)}
+            onClick={handleClick}
         >
             {/* Left side - Vault info */}
             <div className="flex items-center gap-4">

@@ -6,10 +6,12 @@ import { Vault, MorphoVaultData } from '../types/vault';
 interface AllocationData {
   market?: {
     loanAsset?: {
+      address?: string;
       symbol?: string;
       name?: string;
     };
     collateralAsset?: {
+      address?: string;
       symbol?: string;
       name?: string;
     };
@@ -149,6 +151,36 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           allocatedMarkets: vaultInfo.state?.allocation?.map((alloc: AllocationData) => 
             `${alloc.market?.loanAsset?.symbol || alloc.market?.loanAsset?.name}/${alloc.market?.collateralAsset?.symbol || alloc.market?.collateralAsset?.name}`
           ) || [],
+          // Extract unique market assets with their addresses for logo fetching
+          marketAssets: (() => {
+            const assetMap = new Map<string, { symbol: string; address?: string }>();
+            
+            vaultInfo.state?.allocation?.forEach((alloc: AllocationData) => {
+              // Add loan asset
+              if (alloc.market?.loanAsset?.symbol) {
+                const symbol = alloc.market.loanAsset.symbol;
+                if (!assetMap.has(symbol)) {
+                  assetMap.set(symbol, {
+                    symbol,
+                    address: alloc.market.loanAsset.address,
+                  });
+                }
+              }
+              
+              // Add collateral asset
+              if (alloc.market?.collateralAsset?.symbol) {
+                const symbol = alloc.market.collateralAsset.symbol;
+                if (!assetMap.has(symbol)) {
+                  assetMap.set(symbol, {
+                    symbol,
+                    address: alloc.market.collateralAsset.address,
+                  });
+                }
+              }
+            });
+            
+            return Array.from(assetMap.values());
+          })(),
           timelockDuration: vaultInfo.state?.timelock || 0,
           lastUpdated: new Date().toISOString(),
         };

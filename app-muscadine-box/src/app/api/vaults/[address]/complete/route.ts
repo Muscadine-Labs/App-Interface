@@ -71,10 +71,12 @@ export async function GET(
               market {
                 uniqueKey
                 loanAsset {
+                  address
                   name
                   symbol
                 }
                 collateralAsset {
+                  address
                   name
                   symbol
                 }
