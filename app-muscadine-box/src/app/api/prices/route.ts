@@ -16,7 +16,7 @@ const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
 // In-memory cache for prices
 const cachedPrices: Record<string, { price: number | null; lastUpdated: number }> = {};
 
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes (increased to reduce API calls)
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -73,6 +73,9 @@ export async function GET(request: NextRequest) {
     );
 
     if (!response.ok) {
+      // Handle rate limiting (429) and other errors
+      const isRateLimited = response.status === 429;
+      
       // If API fails but we have cached data, return it
       for (const symbol of symbolsToFetch) {
         const coingeckoId = SYMBOL_TO_COINGECKO_ID[symbol];
@@ -87,7 +90,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         ...result,
         cached: true,
-        error: 'API failed, using cached data',
+        error: isRateLimited 
+          ? 'Rate limited - using cached data' 
+          : 'API failed, using cached data',
+        rateLimited: isRateLimited,
       });
     }
 
@@ -109,8 +115,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...result, cached: false });
   } catch (error) {
     console.error('Price API error:', error);
+    
+    // Check if it's a network/CORS error (which might be a 429 rate limit)
+    const isRateLimitError = error instanceof Error && (
+      error.message.includes('429') || 
+      error.message.includes('rate limit') ||
+      error.message.includes('CORS')
+    );
 
-    // Return cached data if available
+    // Return cached data if available (even if stale)
     for (const symbol of symbolsToFetch) {
       const coingeckoId = SYMBOL_TO_COINGECKO_ID[symbol];
       const cached = cachedPrices[coingeckoId];
@@ -124,7 +137,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ...result,
       cached: true,
-      error: 'API failed, using stale cached data',
+      error: isRateLimitError 
+        ? 'Rate limited - using cached data' 
+        : 'API failed, using stale cached data',
+      rateLimited: isRateLimitError,
     });
   }
 }

@@ -48,7 +48,10 @@ function LayoutContent({
   return (
     <div className="w-full bg-[var(--background)] h-screen flex flex-col">
       {/* Top NavBar */}
-      <NavBar />
+      <NavBar 
+        isRightSidebarCollapsed={isRightSidebarCollapsed}
+        onToggleSidebar={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
+      />
       
       {/* Content Area with Sidebar */}
       <div className="flex-1 flex overflow-hidden mt-[var(--navbar-height)]" style={{ height: 'calc(100vh - var(--navbar-height))' }}>
@@ -62,7 +65,6 @@ function LayoutContent({
         {/* Right Sidebar - Always Present */}
         <RightSidebar 
           isCollapsed={isRightSidebarCollapsed}
-          onToggle={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
         />
       </div>
     </div>

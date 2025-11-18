@@ -9,8 +9,14 @@ import { VaultsDropdown } from "./VaultsDropdown";
 import { navigationItems, NavItem } from "@/config/navigation";
 import { ConnectButton } from "../features/wallet";
 import { useTab } from "@/contexts/TabContext";
+import { Icon } from "../ui/Icon";
 
-export function NavBar() {
+interface NavBarProps {
+    isRightSidebarCollapsed?: boolean;
+    onToggleSidebar?: () => void;
+}
+
+export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps) {
     const { activeTab, setActiveTab } = useTab();
     const router = useRouter();
     const pathname = usePathname();
@@ -90,9 +96,23 @@ export function NavBar() {
                     </nav>
                 </div>
 
-                {/* Connect Button */}
-                <div className=" justify-end" onClick={(e) => e.stopPropagation()}>
+                {/* Right side: Connect Button and Sidebar Toggle */}
+                <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                     <ConnectButton />
+                    {onToggleSidebar && (
+                        <button
+                            onClick={onToggleSidebar}
+                            className="w-12 h-8 hover:bg-[var(--surface-hover)] rounded transition-colors flex items-center justify-center group"
+                            aria-label={isRightSidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
+                        >
+                            <Icon 
+                                name="sidebar"
+                                size="lg" 
+                                color="secondary"
+                                className="transition-all duration-200"
+                            />
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

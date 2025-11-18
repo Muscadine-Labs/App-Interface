@@ -5,10 +5,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode, use
 export type TransactionType = 'deposit' | 'withdraw' | 'withdrawAll';
 
 export type TransactionStatus = 
-  | 'idle' 
-  | 'authorizing' 
-  | 'authorized' 
-  | 'depositing' 
+  | 'preview'
   | 'confirming' 
   | 'success' 
   | 'error';
@@ -23,7 +20,6 @@ export interface TransactionModalState {
   status: TransactionStatus;
   error: string | null;
   txHash: string | null;
-  step: 'authorize' | 'deposit' | null;
   isPageVisible: boolean;
 }
 
@@ -38,8 +34,6 @@ interface TransactionModalContextType {
   ) => void;
   closeTransactionModal: () => void;
   updateTransactionStatus: (status: TransactionStatus, error?: string, txHash?: string) => void;
-  setTransactionAmount: (amount: string) => void;
-  moveToNextStep: () => void;
 }
 
 const TransactionModalContext = createContext<TransactionModalContextType | undefined>(undefined);
@@ -51,10 +45,9 @@ const initialModalState: TransactionModalState = {
   vaultName: null,
   vaultSymbol: null,
   amount: null,
-  status: 'idle',
+  status: 'preview',
   error: null,
   txHash: null,
-  step: null,
   isPageVisible: true,
 };
 
@@ -96,10 +89,9 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
       vaultName,
       vaultSymbol,
       amount: amount || null,
-      status: 'idle',
+      status: 'preview',
       error: null,
       txHash: null,
-      step: type === 'deposit' ? 'authorize' : null,
       isPageVisible,
     });
   }, [isPageVisible]);
@@ -121,27 +113,6 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
     }));
   }, []);
 
-  const setTransactionAmount = useCallback((amount: string) => {
-    setModalState(prev => ({
-      ...prev,
-      amount,
-    }));
-  }, []);
-
-  const moveToNextStep = useCallback(() => {
-    setModalState(prev => {
-      if (prev.step === 'authorize') {
-        return {
-          ...prev,
-          step: 'deposit',
-          status: 'idle',
-          error: null,
-          txHash: null,
-        };
-      }
-      return prev;
-    });
-  }, []);
 
   return (
     <TransactionModalContext.Provider value={{
@@ -149,8 +120,6 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
       openTransactionModal,
       closeTransactionModal,
       updateTransactionStatus,
-      setTransactionAmount,
-      moveToNextStep,
     }}>
       {children}
     </TransactionModalContext.Provider>

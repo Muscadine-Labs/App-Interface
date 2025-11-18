@@ -1,0 +1,9 @@
+# Exclude system directories that cause permission errors
+**/.Trash/**
+**/.Trash-*/**
+**/Library/**
+**/.DS_Store
+**/node_modules/**
+**/.git/**
+**/.next/**
+

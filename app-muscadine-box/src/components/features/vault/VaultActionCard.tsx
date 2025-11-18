@@ -225,12 +225,27 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       return;
     }
 
+    // Ensure amount is a valid string
+    const amountToPass = amount && amount.trim() ? amount.trim() : '';
+    
+    console.log('VaultActionCard - handleDeposit', {
+      amount,
+      amountType: typeof amount,
+      amountToPass,
+      currentAmount,
+    });
+    
+    if (!amountToPass || parseFloat(amountToPass) <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    
     openTransactionModal(
       'deposit',
       vaultData.address,
       vaultData.name,
       vaultData.symbol,
-      amount
+      amountToPass
     );
   };
 
@@ -240,11 +255,27 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       return;
     }
 
+    // Ensure amount is a valid string
+    const amountToPass = amount && amount.trim() ? amount.trim() : '';
+    
+    console.log('VaultActionCard - handleWithdraw', {
+      amount,
+      amountType: typeof amount,
+      amountToPass,
+      currentAmount,
+    });
+    
+    if (!amountToPass || parseFloat(amountToPass) <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+
     openTransactionModal(
       'withdraw',
       vaultData.address,
       vaultData.name,
-      vaultData.symbol
+      vaultData.symbol,
+      amountToPass
     );
   };
 
