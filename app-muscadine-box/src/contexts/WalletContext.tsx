@@ -50,11 +50,17 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
-// USDC contract address on Base
-const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+// Major token addresses on Base
+const TOKEN_ADDRESSES = {
+  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  cbBTC: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', // Coinbase Wrapped BTC on Base
+  WETH: '0x4200000000000000000000000000000000000006', // Wrapped ETH on Base
+  USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // USDT on Base
+  DAI: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', // DAI on Base
+} as const;
 
-// USDC ABI for balanceOf
-const USDC_ABI = [
+// ERC20 ABI for balanceOf, decimals, and symbol
+const ERC20_ABI = [
   {
     name: 'balanceOf',
     type: 'function',
@@ -80,8 +86,8 @@ const USDC_ABI = [
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAppKitAccount();
-  const [ethUsdPrice, setEthUsdPrice] = useState<number>(0);
-  const [usdcUsdPrice] = useState<number>(1); // USDC is pegged to $1
+  const [tokenPrices, setTokenPrices] = useState<Record<string, number>>({});
+  const [alchemyTokenBalances, setAlchemyTokenBalances] = useState<TokenBalance[]>([]);
   const [morphoHoldings, setMorphoHoldings] = useState<MorphoHoldings>({
     totalValueUsd: 0,
     positions: [],
@@ -111,12 +117,80 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address }
   });
 
-  // Get USDC balance
+  // Get token balances for major tokens
   const { data: usdcBalance } = useReadContract({
-    address: USDC_ADDRESS,
-    abi: USDC_ABI,
+    address: TOKEN_ADDRESSES.USDC,
+    abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: !!address }
+  });
+
+  const { data: cbbtcBalance, error: cbbtcError } = useReadContract({
+    address: TOKEN_ADDRESSES.cbBTC,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: !!address }
+  });
+
+  const { data: wethBalance } = useReadContract({
+    address: TOKEN_ADDRESSES.WETH,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: !!address }
+  });
+
+  const { data: usdtBalance } = useReadContract({
+    address: TOKEN_ADDRESSES.USDT,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: !!address }
+  });
+
+  const { data: daiBalance } = useReadContract({
+    address: TOKEN_ADDRESSES.DAI,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: !!address }
+  });
+
+  // Get token decimals
+  const { data: usdcDecimals } = useReadContract({
+    address: TOKEN_ADDRESSES.USDC,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
+    query: { enabled: !!address }
+  });
+
+  const { data: cbbtcDecimals } = useReadContract({
+    address: TOKEN_ADDRESSES.cbBTC,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
+    query: { enabled: !!address }
+  });
+
+  const { data: wethDecimals } = useReadContract({
+    address: TOKEN_ADDRESSES.WETH,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
+    query: { enabled: !!address }
+  });
+
+  const { data: usdtDecimals } = useReadContract({
+    address: TOKEN_ADDRESSES.USDT,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
+    query: { enabled: !!address }
+  });
+
+  const { data: daiDecimals } = useReadContract({
+    address: TOKEN_ADDRESSES.DAI,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
     query: { enabled: !!address }
   });
 
@@ -132,6 +206,107 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       return {};
     }
   }, []);
+
+  // Fetch all token balances using Alchemy API (more reliable than individual contract calls)
+  const fetchAllTokenBalances = useCallback(async (): Promise<TokenBalance[]> => {
+    if (!address) return [];
+
+    const alchemyApiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+    if (!alchemyApiKey) {
+      console.warn('Alchemy API key not found, falling back to individual contract calls');
+      return [];
+    }
+
+    try {
+      const response = await fetch(
+        `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'alchemy_getTokenBalances',
+            params: [address, 'erc20'],
+          }),
+        }
+      );
+
+      const data = await response.json();
+      
+      if (data.error) {
+        console.error('Alchemy API error:', data.error);
+        return [];
+      }
+
+      const tokenBalances: TokenBalance[] = [];
+      const tokenAddresses = data.result?.tokenBalances || [];
+      
+      console.log(`Found ${tokenAddresses.length} tokens from Alchemy API`);
+
+      // Fetch metadata for each token in parallel
+      const tokenMetadataPromises = tokenAddresses
+        .filter((token: any) => {
+          const balance = BigInt(token.tokenBalance || '0');
+          return balance > BigInt(0); // Only process tokens with non-zero balance
+        })
+        .map(async (token: any) => {
+          try {
+            const metadataResponse = await fetch(
+              `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: 1,
+                  method: 'alchemy_getTokenMetadata',
+                  params: [token.contractAddress],
+                }),
+              }
+            );
+
+            const metadataData = await metadataResponse.json();
+            
+            if (metadataData.error || !metadataData.result) {
+              return null;
+            }
+
+            const balance = BigInt(token.tokenBalance || '0');
+            const decimals = metadataData.result.decimals || 18;
+            const symbol = metadataData.result.symbol || 'UNKNOWN';
+            const formatted = (Number(balance) / Math.pow(10, decimals)).toString();
+
+            // Debug logging for cbBTC
+            if (symbol.toUpperCase().includes('BTC') || symbol.toUpperCase().includes('CBBTC')) {
+              console.log('Found BTC-related token:', { symbol, address: token.contractAddress, balance: formatted });
+            }
+
+            return {
+              address: token.contractAddress,
+              symbol,
+              decimals,
+              balance,
+              formatted,
+              usdValue: 0, // Will be calculated later with prices
+            };
+          } catch (err) {
+            console.error(`Error fetching metadata for ${token.contractAddress}:`, err);
+            return null;
+          }
+        });
+
+      const metadataResults = await Promise.all(tokenMetadataPromises);
+      return metadataResults.filter((result): result is TokenBalance => result !== null);
+    } catch (err) {
+      console.error('Failed to fetch token balances from Alchemy:', err);
+      return [];
+    }
+  }, [address]);
 
   // Fetch Morpho vault holdings
   const fetchMorphoHoldings = useCallback(async () => {
@@ -223,13 +398,41 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (stableIsConnected && stableAddress) {
       // Only fetch when actually connected with an address
-      const fetchAllPrices = async () => {
-        const prices = await fetchTokenPrices(['ETH', 'USDC']);
-        setEthUsdPrice(prices.eth || 0);
+      const fetchAllData = async () => {
+        // Fetch all token balances from Alchemy first
+        const alchemyBalances = await fetchAllTokenBalances();
+        setAlchemyTokenBalances(alchemyBalances);
+
+        // Get unique symbols for price fetching
+        const symbols = new Set<string>(['ETH', 'USDC']);
+        alchemyBalances.forEach(token => {
+          const symbol = token.symbol.toUpperCase();
+          if (symbol === 'CBBTC' || symbol === 'CBTC') {
+            symbols.add('CBBTC');
+          } else if (symbol === 'WETH') {
+            symbols.add('WETH');
+          } else {
+            symbols.add(symbol);
+          }
+        });
+
+        // Fetch prices for all tokens
+        const prices = await fetchTokenPrices(Array.from(symbols));
+        setTokenPrices({
+          eth: prices.eth || 0,
+          usdc: prices.usdc || 1, // USDC is pegged to $1
+          cbbtc: prices.cbbtc || prices.btc || 0, // cbBTC uses BTC price
+          weth: prices.weth || prices.eth || 0, // WETH uses ETH price
+          usdt: prices.usdt || 1, // USDT is pegged to $1
+          dai: prices.dai || 1, // DAI is pegged to $1
+          ...Object.fromEntries(
+            Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
+          ),
+        });
         fetchMorphoHoldings();
       };
       
-      fetchAllPrices();
+      fetchAllData();
     } else if (!stableIsConnected) {
       // Only clear data when explicitly disconnected (not during auth flows)
       setMorphoHoldings(prev => ({ 
@@ -238,33 +441,105 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         positions: [],
         isLoading: false 
       }));
-      setEthUsdPrice(0);
+      setTokenPrices({});
+      setAlchemyTokenBalances([]);
     }
     // Don't include fetchMorphoHoldings and fetchTokenPrices in deps to prevent infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stableIsConnected, stableAddress]);
+  }, [stableIsConnected, stableAddress, fetchAllTokenBalances]);
 
   const refreshBalances = useCallback(async () => {
-    const prices = await fetchTokenPrices(['ETH', 'USDC']);
-    setEthUsdPrice(prices.eth || 0);
+    const alchemyBalances = await fetchAllTokenBalances();
+    setAlchemyTokenBalances(alchemyBalances);
+
+    const symbols = new Set<string>(['ETH', 'USDC']);
+    alchemyBalances.forEach(token => {
+      const symbol = token.symbol.toUpperCase();
+      if (symbol === 'CBBTC' || symbol === 'CBTC') {
+        symbols.add('CBBTC');
+      } else if (symbol === 'WETH') {
+        symbols.add('WETH');
+      } else {
+        symbols.add(symbol);
+      }
+    });
+
+    const prices = await fetchTokenPrices(Array.from(symbols));
+    setTokenPrices({
+      eth: prices.eth || 0,
+      usdc: prices.usdc || 1,
+      cbbtc: prices.cbbtc || prices.btc || 0,
+      weth: prices.weth || prices.eth || 0,
+      usdt: prices.usdt || 1,
+      dai: prices.dai || 1,
+      ...Object.fromEntries(
+        Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
+      ),
+    });
     fetchMorphoHoldings();
-  }, [fetchTokenPrices, fetchMorphoHoldings]);
+  }, [fetchTokenPrices, fetchMorphoHoldings, fetchAllTokenBalances]);
 
   // Calculate balances and USD values
   const ethFormatted = ethBalance ? parseFloat(ethBalance.formatted) : 0;
-  const ethUsdValue = ethFormatted * ethUsdPrice;
+  const ethUsdValue = ethFormatted * (tokenPrices.eth || 0);
   
-  // USDC has 6 decimals
-  const usdcFormatted = usdcBalance ? Number(usdcBalance) / 1e6 : 0;
-  const usdcUsdValue = usdcFormatted * usdcUsdPrice;
+  // Calculate token balances with proper decimals
+  const usdcDecimalsValue = usdcDecimals || 6;
+  const usdcFormatted = usdcBalance ? Number(usdcBalance) / Math.pow(10, usdcDecimalsValue) : 0;
+  const usdcUsdValue = usdcFormatted * (tokenPrices.usdc || 1);
   
-  // Calculate liquid assets (ETH + USDC in wallet)
-  const liquidUsdValue = ethUsdValue + usdcUsdValue;
+  const cbbtcDecimalsValue = cbbtcDecimals || 8;
+  const cbbtcFormatted = cbbtcBalance ? Number(cbbtcBalance) / Math.pow(10, cbbtcDecimalsValue) : 0;
+  const cbbtcUsdValue = cbbtcFormatted * (tokenPrices.cbbtc || 0);
   
-  // Calculate total value (liquid + Morpho vaults)
-  const totalUsdValue = liquidUsdValue + morphoHoldings.totalValueUsd;
+  const wethDecimalsValue = wethDecimals || 18;
+  const wethFormatted = wethBalance ? Number(wethBalance) / Math.pow(10, wethDecimalsValue) : 0;
+  const wethUsdValue = wethFormatted * (tokenPrices.weth || tokenPrices.eth || 0);
+  
+  const usdtDecimalsValue = usdtDecimals || 6;
+  const usdtFormatted = usdtBalance ? Number(usdtBalance) / Math.pow(10, usdtDecimalsValue) : 0;
+  const usdtUsdValue = usdtFormatted * (tokenPrices.usdt || 1);
+  
+  const daiDecimalsValue = daiDecimals || 18;
+  const daiFormatted = daiBalance ? Number(daiBalance) / Math.pow(10, daiDecimalsValue) : 0;
+  const daiUsdValue = daiFormatted * (tokenPrices.dai || 1);
+  
+  // Calculate liquid assets - will be recalculated with all tokens including Alchemy ones
+  const manualTokensUsdValue = ethUsdValue + usdcUsdValue + cbbtcUsdValue + wethUsdValue + usdtUsdValue + daiUsdValue;
 
-  const tokenBalances: TokenBalance[] = [
+  // Build token balances array - combine ETH, manually fetched tokens, and Alchemy tokens
+  // Calculate USD values for Alchemy tokens
+  const alchemyBalancesWithPrices = alchemyTokenBalances.map(token => {
+    const symbolUpper = token.symbol.toUpperCase();
+    let price = 0;
+    
+    // Map token symbols to price keys
+    if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
+      price = tokenPrices.cbbtc || tokenPrices.btc || 0;
+    } else if (symbolUpper === 'WETH') {
+      price = tokenPrices.weth || tokenPrices.eth || 0;
+    } else if (symbolUpper === 'USDC') {
+      price = tokenPrices.usdc || 1;
+    } else if (symbolUpper === 'USDT') {
+      price = tokenPrices.usdt || 1;
+    } else if (symbolUpper === 'DAI') {
+      price = tokenPrices.dai || 1;
+    } else {
+      // Try to find price by symbol (case insensitive)
+      price = tokenPrices[symbolUpper.toLowerCase()] || tokenPrices[token.symbol.toLowerCase()] || 0;
+    }
+    
+    const usdValue = parseFloat(token.formatted) * price;
+    
+    return {
+      ...token,
+      usdValue,
+    };
+  });
+
+  // Combine all token balances
+  const allTokenBalances: TokenBalance[] = [
+    // ETH (native)
     {
       address: 'ETH',
       symbol: 'ETH',
@@ -273,15 +548,52 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       formatted: ethBalance?.formatted || '0',
       usdValue: ethUsdValue,
     },
-    {
-      address: USDC_ADDRESS,
+    // Manually fetched tokens (as fallback if Alchemy doesn't catch them)
+    ...(usdcBalance && usdcBalance > BigInt(0) && !alchemyBalancesWithPrices.find(t => t.symbol.toUpperCase() === 'USDC') ? [{
+      address: TOKEN_ADDRESSES.USDC,
       symbol: 'USDC',
-      decimals: 6,
-      balance: usdcBalance || BigInt(0),
+      decimals: usdcDecimalsValue,
+      balance: usdcBalance,
       formatted: usdcFormatted.toString(),
       usdValue: usdcUsdValue,
-    },
+    }] : []),
+    ...(cbbtcBalance && cbbtcBalance > BigInt(0) && !alchemyBalancesWithPrices.find(t => t.symbol.toUpperCase() === 'CBBTC' || t.symbol.toUpperCase() === 'CBTC') ? [{
+      address: TOKEN_ADDRESSES.cbBTC,
+      symbol: 'cbBTC',
+      decimals: cbbtcDecimalsValue,
+      balance: cbbtcBalance,
+      formatted: cbbtcFormatted.toString(),
+      usdValue: cbbtcUsdValue,
+    }] : []),
+    ...(wethBalance && wethBalance > BigInt(0) && !alchemyBalancesWithPrices.find(t => t.symbol.toUpperCase() === 'WETH') ? [{
+      address: TOKEN_ADDRESSES.WETH,
+      symbol: 'WETH',
+      decimals: wethDecimalsValue,
+      balance: wethBalance,
+      formatted: wethFormatted.toString(),
+      usdValue: wethUsdValue,
+    }] : []),
+    // Alchemy tokens (includes cbBTC and all others)
+    ...alchemyBalancesWithPrices,
   ];
+
+  // Remove duplicates and filter to only non-zero balances (for total calculation)
+  const allValidTokenBalances = allTokenBalances
+    .filter((token, index, self) => 
+      token.balance > BigInt(0) && 
+      index === self.findIndex(t => t.address.toLowerCase() === token.address.toLowerCase())
+    );
+
+  // Calculate liquid assets from ALL token balances (including dust tokens for accurate total)
+  const liquidUsdValue = allValidTokenBalances.reduce((sum, token) => sum + token.usdValue, 0);
+
+  // Filter to only show tokens worth at least $1 in the UI
+  const tokenBalances = allValidTokenBalances
+    .filter(token => token.usdValue >= 1) // Only show tokens worth at least $1
+    .sort((a, b) => b.usdValue - a.usdValue);
+  
+  // Calculate total value (liquid + Morpho vaults)
+  const totalUsdValue = liquidUsdValue + morphoHoldings.totalValueUsd;
 
   const value: WalletContextType = {
     ethBalance: ethBalance?.formatted || '0',
@@ -301,7 +613,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       style: 'currency',
       currency: 'USD'
     }),
-    tokenBalances,
+    tokenBalances, // Now includes all major tokens with non-zero balances
     morphoHoldings,
     loading,
     error,

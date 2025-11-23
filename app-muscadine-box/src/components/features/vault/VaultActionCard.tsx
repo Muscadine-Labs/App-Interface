@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAccount, useBalance, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { MorphoVaultData } from '@/types/vault';
@@ -54,6 +54,15 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   const { isConnected, address } = useAccount();
   const { openTransactionModal } = useTransactionModal();
   const { morphoHoldings, tokenBalances } = useWallet();
+
+  // Helper function to format asset amount based on asset type
+  const formatAssetAmount = (value: number): string => {
+    const symbol = vaultData.symbol.toUpperCase();
+    if (symbol === 'USDC' || symbol === 'USDT' || symbol === 'DAI') {
+      return value.toFixed(2);
+    }
+    return value.toFixed(6);
+  };
 
   // Click outside to close APY breakdown
   useOnClickOutside(apyBreakdownRef, () => setShowApyBreakdown(false));
@@ -128,6 +137,48 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       setAssetBalance('0.00');
     }
   }, [isConnected, address, ethBalance, tokenBalance, tokenBalances, vaultData.symbol, vaultData.assetDecimals]);
+
+  // Helper function to calculate max depositable amount by rounding DOWN the BigInt balance
+  // This prevents attempting to deposit more than available due to rounding issues
+  const calculateMaxDepositable = useMemo(() => {
+    const symbol = vaultData.symbol.toUpperCase();
+    
+    // For WETH, use ETH balance
+    if (symbol === 'WETH' && ethBalance?.value) {
+      const decimals = 18;
+      const decimalValue = formatUnits(ethBalance.value, decimals);
+      const numberValue = parseFloat(decimalValue);
+      // Round down to avoid exceeding balance
+      const precision = 6;
+      const roundedDown = Math.floor(numberValue * Math.pow(10, precision)) / Math.pow(10, precision);
+      return roundedDown;
+    }
+    
+    // For USDC, check wallet context first
+    if (symbol === 'USDC') {
+      const usdcBalance = tokenBalances.find(tb => tb.symbol === 'USDC');
+      if (usdcBalance?.balance) {
+        const decimals = usdcBalance.decimals || 6;
+        const decimalValue = formatUnits(usdcBalance.balance, decimals);
+        const numberValue = parseFloat(decimalValue);
+        // Round down to avoid exceeding balance (2 decimals for USDC)
+        const roundedDown = Math.floor(numberValue * 100) / 100;
+        return roundedDown;
+      }
+    }
+    
+    // For other tokens (like cbBTC), use token balance from contract
+    if (tokenBalance && vaultData.assetDecimals !== undefined) {
+      const decimalValue = formatUnits(tokenBalance as bigint, vaultData.assetDecimals);
+      const numberValue = parseFloat(decimalValue);
+      // Round down to avoid exceeding balance (6 decimals for most tokens)
+      const precision = 6;
+      const roundedDown = Math.floor(numberValue * Math.pow(10, precision)) / Math.pow(10, precision);
+      return roundedDown;
+    }
+    
+    return 0;
+  }, [ethBalance, tokenBalance, tokenBalances, vaultData.symbol, vaultData.assetDecimals]);
 
   // Fetch asset price
   useEffect(() => {
@@ -280,18 +331,23 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   };
 
   // Calculate max values and remaining balances
-  const maxDeposit = parseFloat(assetBalance) || 0;
-  const maxWithdraw = userVaultValueUsd || 0;
+  // Use calculateMaxDepositable to ensure we never exceed actual balance due to rounding
+  const maxDeposit = calculateMaxDepositable;
+  // Convert withdrawable amount from USD to asset units
+  const maxWithdrawRaw = assetPrice && userVaultValueUsd > 0 ? userVaultValueUsd / assetPrice : 0;
+  // Round maxWithdraw to match the precision used in formatting to avoid comparison issues
+  const maxWithdraw = parseFloat(formatAssetAmount(maxWithdrawRaw));
   const currentAmount = parseFloat(amount) || 0;
   
   const remainingDeposit = Math.max(0, maxDeposit - currentAmount);
-  // For withdraw, convert entered amount to USD to calculate remaining
-  const currentAmountUsd = assetPrice ? currentAmount * assetPrice : 0;
-  const remainingWithdraw = Math.max(0, maxWithdraw - currentAmountUsd);
+  // For withdraw, calculate remaining in asset units (not USD)
+  const remainingWithdraw = Math.max(0, maxWithdraw - currentAmount);
 
-  // Check if amount exceeds max
-  const exceedsMaxDeposit = currentAmount > maxDeposit;
-  const exceedsMaxWithdraw = currentAmountUsd > maxWithdraw;
+  // Check if amount exceeds max (with small epsilon for floating-point precision)
+  // Use a small tolerance to account for floating-point arithmetic errors
+  const EPSILON = 1e-8; // Small value to handle floating-point precision issues
+  const exceedsMaxDeposit = currentAmount > maxDeposit + EPSILON;
+  const exceedsMaxWithdraw = currentAmount > maxWithdraw + EPSILON;
 
   // Handle input change with max validation
   const handleAmountChange = (value: string) => {
@@ -320,7 +376,7 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   // Set max amount
   const setMaxAmount = (isDeposit: boolean) => {
     const max = isDeposit ? maxDeposit : maxWithdraw;
-    setAmount(max.toFixed(6));
+    setAmount(formatAssetAmount(max));
   };
 
   return (
@@ -595,13 +651,13 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   if (isNaN(val) || val < 0) {
                     setAmount('');
                   } else {
-                    const valUsd = assetPrice ? val * assetPrice : 0;
-                    if (valUsd > maxWithdraw) {
-                      // Convert max withdraw back to token amount
-                      const maxTokens = assetPrice ? maxWithdraw / assetPrice : 0;
-                      setAmount(maxTokens.toFixed(6));
+                    // Round maxWithdraw to match the precision we're using for comparison
+                    const maxRounded = parseFloat(formatAssetAmount(maxWithdraw));
+                    const EPSILON = 1e-8;
+                    if (val > maxRounded + EPSILON) {
+                      setAmount(formatAssetAmount(maxWithdraw));
                     } else if (val > 0) {
-                      setAmount(val.toFixed(6));
+                      setAmount(formatAssetAmount(val));
                     } else {
                       setAmount('');
                     }
@@ -617,7 +673,7 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
               />
               {exceedsMaxWithdraw && (
                 <p className="text-xs text-[var(--danger)]">
-                  Amount exceeds your available value of {formatSmartCurrency(userVaultValueUsd)} {vaultData.symbol}
+                  Amount exceeds your available balance of {formatAssetAmount(maxWithdraw)} {vaultData.symbol}
                 </p>
               )}
               {parseFloat(amount) > 0 && !exceedsMaxWithdraw && (
@@ -632,8 +688,8 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
               }`}>
                 {currentVaultPosition 
                   ? (currentAmount > 0
-                      ? `${formatSmartCurrency(remainingWithdraw)} ${vaultData.symbol} remaining`
-                      : `${formatSmartCurrency(userVaultValueUsd)} ${vaultData.symbol} available`
+                      ? `${formatAssetAmount(remainingWithdraw)} ${vaultData.symbol} remaining`
+                      : `${formatAssetAmount(maxWithdraw)} ${vaultData.symbol} available`
                     )
                   : `0.00 ${vaultData.symbol} available`
                 }

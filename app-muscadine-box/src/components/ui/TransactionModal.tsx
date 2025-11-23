@@ -11,6 +11,92 @@ import Image from 'next/image';
 import { getVaultLogo } from '../../types/vault';
 import { formatSmartCurrency } from '../../lib/formatter';
 
+// Helper function to convert technical errors into user-friendly messages
+function formatTransactionError(error: unknown): string {
+  if (!error) {
+    return 'Transaction failed. Please try again.';
+  }
+
+  const errorString = error instanceof Error ? error.message : String(error);
+  const errorLower = errorString.toLowerCase();
+
+  // User rejection / cancellation
+  if (
+    errorLower.includes('user rejected') ||
+    errorLower.includes('user cancelled') ||
+    errorLower.includes('rejected') ||
+    errorLower.includes('denied') ||
+    errorLower.includes('action_cancelled') ||
+    errorLower.includes('4001') ||
+    errorLower.includes('user denied')
+  ) {
+    return 'Transaction cancelled.';
+  }
+
+  // Insufficient balance
+  if (
+    errorLower.includes('insufficient') ||
+    errorLower.includes('balance too low') ||
+    errorLower.includes('execution reverted: insufficient')
+  ) {
+    return 'Insufficient balance. Please check your available funds.';
+  }
+
+  // Transaction reverted
+  if (
+    errorLower.includes('reverted') ||
+    errorLower.includes('execution reverted') ||
+    errorLower.includes('revert')
+  ) {
+    return 'Transaction was reverted. Please try again with a different amount or check your balance.';
+  }
+
+  // Network / RPC errors
+  if (
+    errorLower.includes('network') ||
+    errorLower.includes('rpc') ||
+    errorLower.includes('fetch') ||
+    errorLower.includes('timeout') ||
+    errorLower.includes('connection')
+  ) {
+    return 'Network error. Please check your connection and try again.';
+  }
+
+  // Gas / fee errors
+  if (
+    errorLower.includes('gas') ||
+    errorLower.includes('fee') ||
+    errorLower.includes('out of gas')
+  ) {
+    return 'Transaction failed due to gas estimation. Please try again.';
+  }
+
+  // Simulation state errors
+  if (
+    errorLower.includes('simulation') ||
+    errorLower.includes('bundler') ||
+    errorLower.includes('not ready')
+  ) {
+    return 'System is preparing the transaction. Please wait a moment and try again.';
+  }
+
+  // Generic transaction failure
+  if (
+    errorLower.includes('transaction failed') ||
+    errorLower.includes('failed')
+  ) {
+    return 'Transaction failed. Please try again.';
+  }
+
+  // If it's a short, readable error, use it directly
+  if (errorString.length < 100 && !errorString.includes('Error: ')) {
+    return errorString;
+  }
+
+  // Default fallback for long technical errors
+  return 'Transaction failed. Please try again.';
+}
+
 export function TransactionModal() {
   const { 
     modalState, 
@@ -120,7 +206,7 @@ export function TransactionModal() {
         closeTransactionModal();
       }, 3000);
     } else if (receiptError && modalState.status === 'confirming') {
-      updateTransactionStatus('error', 'Transaction failed or was reverted');
+      updateTransactionStatus('error', formatTransactionError(receiptError));
     }
   }, [receipt, receiptError, modalState.status, currentTxHash, updateTransactionStatus, closeTransactionModal]);
 
@@ -159,10 +245,7 @@ export function TransactionModal() {
 
     } catch (err) {
       console.error('Transaction failed:', err);
-      let errorMessage = 'Transaction failed';
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      }
+      const errorMessage = formatTransactionError(err);
       updateTransactionStatus('error', errorMessage);
     }
   };
@@ -229,16 +312,27 @@ export function TransactionModal() {
           )}
 
           {isError && (
-            <div className="flex items-center justify-center gap-3 p-4 bg-[var(--danger-subtle)] rounded-lg border border-[var(--danger)]">
-              <div className="w-8 h-8 rounded-full bg-[var(--danger)] flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+            <>
+              <div className="flex items-center gap-3 p-4 bg-[var(--danger-subtle)] rounded-lg border border-[var(--danger)]">
+                <div className="w-8 h-8 rounded-full bg-[var(--danger)] flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-[var(--foreground)]">
+                  {modalState.error || 'Transaction failed'}
+                </p>
               </div>
-              <p className="text-sm font-medium text-[var(--foreground)]">
-                {modalState.error || 'Transaction failed'}
-              </p>
-            </div>
+              <button
+                onClick={() => {
+                  updateTransactionStatus('preview');
+                  setCurrentTxHash(null);
+                }}
+                className="w-full px-4 py-3 bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--foreground)] font-medium rounded-lg transition-colors text-sm"
+              >
+                Try Again
+              </button>
+            </>
           )}
 
           {isConfirming && (

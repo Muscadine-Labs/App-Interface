@@ -1,9 +1,10 @@
 import { useMemo } from "react";
-import { useBlock, useAccount, useReadContract, useReadContracts, useWalletClient } from "wagmi";
+import { useBlock, useAccount, useReadContract, useReadContracts, useWalletClient, useBalance } from "wagmi";
 import {
   getChainAddresses,
   NATIVE_ADDRESS,
   MarketParams,
+  Holding,
   type MarketId,
 } from "@morpho-org/blue-sdk";
 import {
@@ -82,12 +83,24 @@ export const useVaultSimulationState = (
   const vaultDataContext = useVaultData();
   const shouldFetch = enabled && !!vaultAddress && !!address;
 
-  const { data: block } = useBlock({
+  // Fetch native ETH balance to ensure it's available for wrapping
+  const { data: nativeBalance } = useBalance({
+    address: address as Address,
     chainId: BASE_CHAIN_ID,
-    watch: shouldFetch,
     query: {
       enabled: shouldFetch,
-      refetchInterval: 12000,
+    },
+  });
+
+  // Only watch block when simulation is actively needed (e.g., modal is open)
+  // Disable watch to reduce RPC calls - block will be fetched once per render
+  const { data: block } = useBlock({
+    chainId: BASE_CHAIN_ID,
+    watch: false, // Disable continuous watching to reduce RPC calls
+    query: {
+      enabled: shouldFetch,
+      refetchInterval: false, // Disable polling - only fetch when needed
+      staleTime: 30000, // Cache for 30 seconds
     },
   });
 
@@ -214,11 +227,8 @@ export const useVaultSimulationState = (
     // Vault is also a user (supply positions in Blue)
     if (vaultAddress) list.push(vaultAddress);
 
-    // FIX: Add the assetAddress to users. 
-    // This ensures the simulation can execute contract interactions (like wrapping) on the asset itself.
-    if (assetAddress && !list.includes(assetAddress)) {
-        list.push(assetAddress);
-    }
+    // Note: assetAddress doesn't need to be a user - it's just a token address
+    // Removing it to reduce RPC calls
 
     return list;
   }, [address, bundler, generalAdapter, vaultAddress, assetAddress]);
@@ -249,15 +259,67 @@ export const useVaultSimulationState = (
       : undefined,
     query: {
       enabled: isDataReady,
-      refetchInterval: false,
-      staleTime: 30000,
+      refetchInterval: false, // Disable automatic refetching
+      staleTime: 60000, // Cache for 60 seconds (increased from 30s)
     },
   });
 
   const errorMessage = getSimulationErrorMessage(simulation.error);
 
+    // Manually ensure native ETH balance is in holdings if simulation state exists
+    // This is needed because useSimulationState might not always fetch native balances correctly
+    // Create a new object with the same prototype to preserve methods while allowing mutations
+    const enhancedSimulationState = useMemo(() => {
+      if (!simulation.data || !address) {
+        return simulation.data;
+      }
+
+      // If nativeBalance is not available yet, return original state
+    // (it will be updated when nativeBalance is available)
+    if (!nativeBalance) {
+      return simulation.data;
+    }
+
+    // Create a new object with the same prototype to preserve methods
+    const state = Object.create(Object.getPrototypeOf(simulation.data));
+    Object.assign(state, simulation.data);
+    
+    // Ensure holdings object exists
+    if (!state.holdings) {
+      state.holdings = {};
+    }
+    
+    // Ensure user's holdings object exists
+    if (!state.holdings[address]) {
+      state.holdings[address] = {};
+    }
+    
+        // Always update native balance to ensure bundler sees it for wrapping
+    // This ensures the bundler knows about native ETH for wrapping
+    const userHoldings = state.holdings[address];
+    const nativeAddress = NATIVE_ADDRESS as `0x${string}`;
+    
+    // Always update/create the native holding with the current balance
+    const existing = userHoldings[nativeAddress];
+    userHoldings[nativeAddress] = new Holding({
+      user: address as `0x${string}`,
+      token: nativeAddress,
+      balance: nativeBalance.value,
+      erc20Allowances: existing?.erc20Allowances || {
+        morpho: BigInt(0),
+        permit2: BigInt(0),
+        'bundler3.generalAdapter1': BigInt(0),
+      },
+      permit2BundlerAllowance: existing?.permit2BundlerAllowance || { amount: BigInt(0), expiration: BigInt(0), nonce: BigInt(0) },
+      erc2612Nonce: existing?.erc2612Nonce || BigInt(0),
+      canTransfer: existing?.canTransfer !== false,
+    });
+    
+    return state;
+  }, [simulation.data, address, nativeBalance]);
+
   return {
-    simulationState: simulation.data,
+    simulationState: enhancedSimulationState,
     isPending: isLengthLoading || isQueueLoading || isAssetLoading || simulation.isPending,
     error: errorMessage,
     bundler,

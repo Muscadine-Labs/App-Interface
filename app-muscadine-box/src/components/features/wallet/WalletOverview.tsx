@@ -258,7 +258,7 @@ export default function WalletOverview() {
                                     <span className="text-xs text-[var(--foreground-secondary)]">
                                         {formatNumber(asset.formatted, {
                                             minimumFractionDigits: 0,
-                                            maximumFractionDigits: asset.symbol === 'ETH' ? 4 : 2,
+                                            maximumFractionDigits: asset.symbol === 'ETH' || asset.symbol === 'WETH' ? 4 : asset.symbol === 'cbBTC' ? 6 : 2,
                                         })}
                                     </span>
                                 </div>
@@ -321,7 +321,7 @@ export default function WalletOverview() {
                                     <span className="text-xs text-[var(--foreground-secondary)]">
                                         {formatNumber(asset.formatted, {
                                             minimumFractionDigits: 0,
-                                            maximumFractionDigits: asset.symbol === 'ETH' ? 4 : 2,
+                                            maximumFractionDigits: asset.symbol === 'ETH' || asset.symbol === 'WETH' ? 4 : asset.symbol === 'cbBTC' ? 6 : 2,
                                         })}
                                     </span>
                                 </div>
