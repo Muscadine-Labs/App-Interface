@@ -126,7 +126,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address }
   });
 
-  const { data: cbbtcBalance, error: cbbtcError } = useReadContract({
+  const { data: cbbtcBalance } = useReadContract({
     address: TOKEN_ADDRESSES.cbBTC,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -142,7 +142,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address }
   });
 
-  const { data: usdtBalance } = useReadContract({
+  // USDT and DAI balances are fetched but not currently used in calculations
+  // Kept for potential future use
+  const { data: _usdtBalance } = useReadContract({
     address: TOKEN_ADDRESSES.USDT,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -150,7 +152,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address }
   });
 
-  const { data: daiBalance } = useReadContract({
+  const { data: _daiBalance } = useReadContract({
     address: TOKEN_ADDRESSES.DAI,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -241,7 +243,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         return [];
       }
 
-      const tokenBalances: TokenBalance[] = [];
       const tokenAddresses = data.result?.tokenBalances || [];
       
       console.log(`Found ${tokenAddresses.length} tokens from Alchemy API`);
@@ -497,15 +498,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const wethUsdValue = wethFormatted * (tokenPrices.weth || tokenPrices.eth || 0);
   
   const usdtDecimalsValue = usdtDecimals || 6;
-  const usdtFormatted = usdtBalance ? Number(usdtBalance) / Math.pow(10, usdtDecimalsValue) : 0;
-  const usdtUsdValue = usdtFormatted * (tokenPrices.usdt || 1);
+  // USDT and DAI USD values are calculated but not currently used in the final token balances array
+  // They're kept here for potential future use
+  // const usdtFormatted = usdtBalance ? Number(usdtBalance) / Math.pow(10, usdtDecimalsValue) : 0;
+  // const usdtUsdValue = usdtFormatted * (tokenPrices.usdt || 1);
   
-  const daiDecimalsValue = daiDecimals || 18;
-  const daiFormatted = daiBalance ? Number(daiBalance) / Math.pow(10, daiDecimalsValue) : 0;
-  const daiUsdValue = daiFormatted * (tokenPrices.dai || 1);
-  
-  // Calculate liquid assets - will be recalculated with all tokens including Alchemy ones
-  const manualTokensUsdValue = ethUsdValue + usdcUsdValue + cbbtcUsdValue + wethUsdValue + usdtUsdValue + daiUsdValue;
+  // const daiDecimalsValue = daiDecimals || 18;
+  // const daiFormatted = daiBalance ? Number(daiBalance) / Math.pow(10, daiDecimalsValue) : 0;
+  // const daiUsdValue = daiFormatted * (tokenPrices.dai || 1);
 
   // Build token balances array - combine ETH, manually fetched tokens, and Alchemy tokens
   // Calculate USD values for Alchemy tokens

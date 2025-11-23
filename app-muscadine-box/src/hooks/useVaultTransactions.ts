@@ -93,7 +93,6 @@ export function useVaultTransactions(vaultAddress?: string) {
 
       // Constants for Base Chain
       const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
-      const ADAPTER_ADDRESS = '0xb98c948CFA24072e58935BC004a8A7b376AE746A';
 
       // Check if this is a WETH vault (Using case-insensitive comparison)
       const isWethVault = assetAddress?.toLowerCase() === WETH_ADDRESS.toLowerCase();
@@ -233,8 +232,11 @@ export function useVaultTransactions(vaultAddress?: string) {
         );
       }
 
+      // Track if we sent prerequisite transactions (like approvals)
+      const hadPrerequisiteTxs = bundle.requirements.txs.length > 0;
+      
       // Send any prerequisite transactions and wait for them to be mined
-      if (bundle.requirements.txs.length > 0) {
+      if (hadPrerequisiteTxs) {
         for (const { tx } of bundle.requirements.txs) {
           const prereqHash = await walletClient.sendTransaction({
             ...tx,
@@ -245,6 +247,10 @@ export function useVaultTransactions(vaultAddress?: string) {
             await publicClient.waitForTransactionReceipt({ hash: prereqHash });
           }
         }
+        
+        // After prerequisite transactions (like approvals), wait a moment for state to propagate
+        // This ensures the simulation state reflects the new allowances before we estimate gas
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       // Send the main bundle transaction
@@ -265,7 +271,51 @@ export function useVaultTransactions(vaultAddress?: string) {
             data: bundleTx.data,
             value: bundleTx.value || BigInt(0),
           });
-        } catch (gasError) {
+        } catch (gasError: unknown) {
+          // If we had prerequisite transactions and gas estimation fails with an allowance error,
+          // it might be because the state hasn't propagated yet. Try recreating the bundle.
+          const errorString = gasError instanceof Error ? gasError.message : String(gasError);
+          const isAllowanceError = errorString.toLowerCase().includes('allowance') || 
+                                   errorString.toLowerCase().includes('transfer amount exceeds');
+          
+          if (hadPrerequisiteTxs && isAllowanceError) {
+            // Wait a bit longer for state to propagate, then recreate bundle
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Recreate the bundle with updated simulation state
+            const { bundle: refreshedBundle } = setupBundle(
+              inputOperations,
+              simulationState as any,
+              userAddress,
+              {
+                ...bundlingOptions,
+                supportsSignature: false,
+              }
+            );
+            
+            const refreshedBundleTx = refreshedBundle.tx();
+            if (refreshedBundleTx.to) {
+              try {
+                gasEstimate = await publicClient.estimateGas({
+                  account: walletClient.account,
+                  to: refreshedBundleTx.to,
+                  data: refreshedBundleTx.data,
+                  value: refreshedBundleTx.value || BigInt(0),
+                });
+                // Use the refreshed bundle transaction
+                const refreshedTxHash = await walletClient.sendTransaction({
+                  to: refreshedBundleTx.to,
+                  data: refreshedBundleTx.data,
+                  value: refreshedBundleTx.value || BigInt(0),
+                  account: walletClient.account,
+                  gas: gasEstimate,
+                });
+                return refreshedTxHash;
+              } catch {
+                // If retry still fails, proceed without gas estimate
+              }
+            }
+          }
           // Proceed without gas estimate - wallet will estimate
         }
       }

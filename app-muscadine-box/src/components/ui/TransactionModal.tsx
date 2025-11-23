@@ -115,6 +115,17 @@ export function TransactionModal() {
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
   const [assetPrice, setAssetPrice] = useState<number | null>(null);
 
+  // Reset transaction hash when modal opens (preview status) or closes
+  useEffect(() => {
+    if (!modalState.isOpen) {
+      // Clear hash when modal closes
+      setCurrentTxHash(null);
+    } else if (modalState.status === 'preview') {
+      // Clear hash when modal opens in preview state (starting new transaction)
+      setCurrentTxHash(null);
+    }
+  }, [modalState.status, modalState.isOpen]);
+
   // Get vault data
   const vaultData = modalState.vaultAddress ? vaultDataContext.getVaultData(modalState.vaultAddress) : null;
 
@@ -191,26 +202,28 @@ export function TransactionModal() {
   }, [modalState.vaultSymbol]);
 
   // Wait for main transaction receipt (deposit/withdraw)
+  // Only enable when we have a hash AND status is confirming (not preview or error)
   const { data: receipt, error: receiptError } = useWaitForTransactionReceipt({
     hash: currentTxHash as `0x${string}`,
     query: {
-      enabled: !!currentTxHash && modalState.status === 'confirming',
+      enabled: !!currentTxHash && modalState.status === 'confirming' && modalState.isOpen,
     },
   });
 
-  // Handle transaction receipt - only close after this
+  // Handle transaction receipt - only mark as success when receipt is confirmed
   useEffect(() => {
-    if (receipt && modalState.status === 'confirming') {
-      updateTransactionStatus('success', undefined, currentTxHash || undefined);
+    // Only process receipt when status is confirming and we have a receipt
+    if (receipt && modalState.status === 'confirming' && currentTxHash) {
+      updateTransactionStatus('success', undefined, currentTxHash);
       setTimeout(() => {
         closeTransactionModal();
       }, 3000);
-    } else if (receiptError && modalState.status === 'confirming') {
+    } else if (receiptError && modalState.status === 'confirming' && currentTxHash) {
       updateTransactionStatus('error', formatTransactionError(receiptError));
     }
   }, [receipt, receiptError, modalState.status, currentTxHash, updateTransactionStatus, closeTransactionModal]);
 
-  // Execute transaction
+  // Execute transaction with retry logic for allowance errors
   const handleConfirm = async () => {
     if (!modalState.vaultAddress || !modalState.amount) return;
 
@@ -223,23 +236,43 @@ export function TransactionModal() {
         vaultAddress: modalState.vaultAddress,
       });
       
-      let txHash: string;
+      let retryCount = 0;
+      const maxRetries = 1;
 
-      if (modalState.type === 'deposit') {
-        txHash = await executeVaultAction('deposit', modalState.vaultAddress, modalState.amount);
-      } else if (modalState.type === 'withdraw') {
-         // If amount is specified, withdraw that amount, otherwise withdraw all
-         if (modalState.amount && parseFloat(modalState.amount) > 0) {
-            txHash = await executeVaultAction('withdraw', modalState.vaultAddress, modalState.amount);
-         } else {
-            txHash = await executeVaultAction('withdrawAll', modalState.vaultAddress);
-         }
-      } else if (modalState.type === 'withdrawAll') {
-        txHash = await executeVaultAction('withdrawAll', modalState.vaultAddress);
-      } else {
-        throw new Error('Invalid transaction type');
-      }
-      
+      const executeWithRetry = async (): Promise<string> => {
+        try {
+          if (modalState.type === 'deposit') {
+            return await executeVaultAction('deposit', modalState.vaultAddress!, modalState.amount!);
+          } else if (modalState.type === 'withdraw') {
+            // If amount is specified, withdraw that amount, otherwise withdraw all
+            if (modalState.amount && parseFloat(modalState.amount) > 0) {
+              return await executeVaultAction('withdraw', modalState.vaultAddress!, modalState.amount);
+            } else {
+              return await executeVaultAction('withdrawAll', modalState.vaultAddress!);
+            }
+          } else if (modalState.type === 'withdrawAll') {
+            return await executeVaultAction('withdrawAll', modalState.vaultAddress!);
+          } else {
+            throw new Error('Invalid transaction type');
+          }
+        } catch (err: unknown) {
+          const errorString = err instanceof Error ? err.message : String(err);
+          const errorLower = errorString.toLowerCase();
+          const isAllowanceError = errorLower.includes('allowance') || 
+                                   errorLower.includes('transfer amount exceeds');
+          
+          // If we get an allowance error and haven't retried yet, wait and retry
+          if (isAllowanceError && retryCount < maxRetries) {
+            retryCount++;
+            // Wait a moment for simulation state to update after approval
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            return executeWithRetry();
+          }
+          throw err;
+        }
+      };
+
+      const txHash = await executeWithRetry();
       setCurrentTxHash(txHash);
       updateTransactionStatus('confirming', undefined, txHash);
 
@@ -485,8 +518,8 @@ export function TransactionModal() {
             </>
           )}
 
-          {/* Transaction Hash */}
-          {currentTxHash && (
+          {/* Transaction Hash - Only show when transaction is in progress or completed */}
+          {currentTxHash && (modalState.status === 'confirming' || modalState.status === 'success') && (
             <div className="p-4 bg-[var(--surface)] rounded-lg">
               <p className="text-xs text-[var(--foreground-secondary)] mb-1">Transaction Hash</p>
               <p className="text-sm font-mono text-[var(--foreground)] break-all">

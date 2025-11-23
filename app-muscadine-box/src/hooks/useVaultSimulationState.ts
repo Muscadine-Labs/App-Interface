@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useBlock, useAccount, useReadContract, useReadContracts, useWalletClient, useBalance } from "wagmi";
+import { useBlock, useAccount, useReadContract, useReadContracts, useBalance } from "wagmi";
 import {
   getChainAddresses,
   NATIVE_ADDRESS,
@@ -10,7 +10,7 @@ import {
 import {
   useSimulationState,
 } from "@morpho-org/simulation-sdk-wagmi";
-import { ReadContractErrorType, type Address } from "viem";
+import { type Address } from "viem";
 import { useVaultData } from "../contexts/VaultDataContext";
 
 const BASE_CHAIN_ID = 8453;
@@ -79,7 +79,6 @@ export const useVaultSimulationState = (
   enabled: boolean = true
 ) => {
   const { address } = useAccount();
-  const { data: walletClient } = useWalletClient();
   const vaultDataContext = useVaultData();
   const shouldFetch = enabled && !!vaultAddress && !!address;
 
@@ -185,7 +184,7 @@ export const useVaultSimulationState = (
         if (params.loanToken) {
           activeTokens.add(params.loanToken);
         }
-      } catch (e) {
+      } catch {
         // Silently ignore unknown markets
       }
     });
@@ -231,7 +230,7 @@ export const useVaultSimulationState = (
     // Removing it to reduce RPC calls
 
     return list;
-  }, [address, bundler, generalAdapter, vaultAddress, assetAddress]);
+  }, [address, bundler, generalAdapter, vaultAddress]);
 
   const vaults = useMemo(() => {
     return vaultAddress ? [vaultAddress] : [];
