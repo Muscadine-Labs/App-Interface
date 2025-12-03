@@ -21,7 +21,8 @@ export type IconName =
   | 'money-in'
   | 'money-out'
   | 'panel-right'
-  | 'sidebar';
+  | 'sidebar'
+  | 'glasses';
 
 export interface IconProps {
   name: IconName;
@@ -76,6 +77,11 @@ const iconPaths: Record<IconName, string | string[]> = {
   'sidebar': [
     'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
     'M16.5 4v16',
+  ],
+  'glasses': [
+    'M6 12a4 4 0 1 0 8 0',
+    'M18 12a4 4 0 1 0-8 0',
+    'M10 12h4',
   ],
 };
 

@@ -5,11 +5,20 @@ import React, { createContext, useContext, useState, useCallback, ReactNode, use
 export type TransactionType = 'deposit' | 'withdraw' | 'withdrawAll';
 
 export type TransactionStatus = 
-  | 'preview'
+  | 'preview' 
+  | 'signing'
+  | 'approving'
   | 'confirming' 
   | 'success' 
-  | 'error'
+  | 'error' 
   | 'cancelled';
+
+export interface TransactionStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'active' | 'completed';
+  contractAddress?: string;
+}
 
 export interface TransactionModalState {
   isOpen: boolean;
@@ -22,6 +31,8 @@ export interface TransactionModalState {
   error: string | null;
   txHash: string | null;
   isPageVisible: boolean;
+  steps: TransactionStep[];
+  currentStepIndex: number;
 }
 
 interface TransactionModalContextType {
@@ -50,6 +61,8 @@ const initialModalState: TransactionModalState = {
   error: null,
   txHash: null,
   isPageVisible: true,
+  steps: [],
+  currentStepIndex: 0,
 };
 
 export function TransactionModalProvider({ children }: { children: ReactNode }) {
@@ -94,6 +107,8 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
       error: null,
       txHash: null,
       isPageVisible,
+      steps: [],
+      currentStepIndex: 0,
     });
   }, [isPageVisible]);
 

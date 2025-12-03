@@ -12,18 +12,15 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
 
   return (
     <div className="w-full">
-      
       {/* Hero Section */}
       <div className="bg-[var(--background)]">
         <div className="flex items-center gap-4">
-        
-
           {/* Vault Name and Asset */}
           <div className="flex flex-col">
-            <h1 className="text-3xl font-semibold text-[var(--foreground)]">
+            <h1 className="text-5xl font-semibold text-[var(--foreground)]">
               {vaultData.name}
             </h1>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-0.5">
               <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center overflow-hidden">
                 <Image 
                   src={getVaultLogo(vaultData.symbol)} 
@@ -35,7 +32,7 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
                   }`}
                 />
               </div>
-              <span className="text-lg text-[var(--foreground-secondary)]">
+              <span className="text-base text-[var(--foreground-secondary)]">
                 {vaultData.symbol}
               </span>
             </div>

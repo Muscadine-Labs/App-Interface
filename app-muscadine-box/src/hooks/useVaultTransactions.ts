@@ -11,7 +11,7 @@ import { useVaultData } from '../contexts/VaultDataContext';
 import { useVaultSimulationState } from './useVaultSimulationState';
 import { useTransactionModal } from '../contexts/TransactionModalContext';
 
-// ABI for vault asset() function
+// ABI for vault asset() function and ERC-4626 conversion functions
 const VAULT_ASSET_ABI = [
   {
     inputs: [],
@@ -19,6 +19,13 @@ const VAULT_ASSET_ABI = [
     outputs: [{ internalType: "address", name: "", type: "address" }],
     stateMutability: "view",
     type: "function",
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'assets', type: 'uint256' }],
+    name: 'convertToShares',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
   },
 ] as const;
 
@@ -34,6 +41,13 @@ const ERC20_BALANCE_ABI = [
 ] as const;
 
 type VaultAction = 'deposit' | 'withdraw' | 'withdrawAll';
+
+export type TransactionProgressStep = 
+  | { type: 'signing'; stepIndex: number; totalSteps: number }
+  | { type: 'approving'; stepIndex: number; totalSteps: number; contractAddress: string }
+  | { type: 'confirming'; stepIndex: number; totalSteps: number; txHash: string };
+
+export type TransactionProgressCallback = (step: TransactionProgressStep) => void;
 
 export function useVaultTransactions(vaultAddress?: string) {
   const { data: walletClient } = useWalletClient();
@@ -90,7 +104,8 @@ export function useVaultTransactions(vaultAddress?: string) {
   const executeVaultAction = useCallback(async (
     action: VaultAction,
     vault: string,
-    amount?: string
+    amount?: string,
+    onProgress?: TransactionProgressCallback
   ): Promise<string> => {
     if (!accountAddress) throw new Error('Wallet not connected');
     if (!walletClient?.account?.address) throw new Error('Wallet client not available');
@@ -158,7 +173,32 @@ export function useVaultTransactions(vaultAddress?: string) {
       } else if (!amount || parseFloat(amount) <= 0) {
         throw new Error('Invalid amount');
       } else {
-        amountBigInt = parseUnits(amount, assetDecimals);
+        // Sanitize and validate amount string before parsing
+        // Remove any whitespace and ensure it's a valid decimal number
+        const sanitizedAmount = amount.trim().replace(/\s+/g, '');
+        
+        // Validate format: must be a valid decimal number (no scientific notation, no extra characters)
+        if (!/^\d+\.?\d*$/.test(sanitizedAmount)) {
+          throw new Error(`Invalid amount format: "${amount}". Expected a decimal number.`);
+        }
+        
+        // Split into integer and decimal parts
+        const parts = sanitizedAmount.split('.');
+        const integerPart = parts[0] || '0';
+        const decimalPart = parts[1] || '';
+        
+        // Ensure decimal part doesn't exceed contract decimals
+        if (decimalPart.length > assetDecimals) {
+          // Truncate to contract decimals (don't round to prevent exceeding balance)
+          const truncatedDecimal = decimalPart.substring(0, assetDecimals);
+          const truncatedAmount = `${integerPart}.${truncatedDecimal}`;
+          amountBigInt = parseUnits(truncatedAmount, assetDecimals);
+        } else {
+          // Pad decimal part with zeros if needed (parseUnits requires exact decimal places)
+          const paddedDecimal = decimalPart.padEnd(assetDecimals, '0');
+          const normalizedAmount = `${integerPart}.${paddedDecimal}`;
+          amountBigInt = parseUnits(normalizedAmount, assetDecimals);
+        }
       }
 
       // Build input operations
@@ -255,12 +295,32 @@ export function useVaultTransactions(vaultAddress?: string) {
             },
           });
         } else {
+          // Convert assets to shares to avoid SDK's incorrect decimal assumption
+          // The SDK's MetaMorpho_Withdraw with assets parameter assumes 18 decimals,
+          // but some assets (like cbBTC) use 8 decimals. By converting to shares ourselves,
+          // we ensure the correct conversion using the vault's convertToShares function.
+          if (!publicClient) {
+            throw new Error('Public client not available');
+          }
+          
+          let sharesBigInt: bigint;
+          try {
+            sharesBigInt = await publicClient.readContract({
+              address: normalizedVault,
+              abi: VAULT_ASSET_ABI,
+              functionName: 'convertToShares',
+              args: [amountBigInt],
+            });
+          } catch (error) {
+            throw new Error('Failed to convert assets to shares. Please try again.');
+          }
+          
           inputOperations.push({
             type: 'MetaMorpho_Withdraw',
             address: normalizedVault,
             sender: userAddress,
             args: {
-              assets: amountBigInt,
+              shares: sharesBigInt, // Use converted shares instead of assets
               owner: userAddress,
               receiver: userAddress,
               slippage: DEFAULT_SLIPPAGE_TOLERANCE,
@@ -292,21 +352,41 @@ export function useVaultTransactions(vaultAddress?: string) {
         }
       );
 
+      // Calculate total steps for progress tracking
+      const hasSignatures = bundle.requirements.signatures.length > 0;
+      const hasPrerequisiteTxs = bundle.requirements.txs.length > 0;
+      const totalSteps = (hasSignatures ? 1 : 0) + (hasPrerequisiteTxs ? 1 : 0) + 1; // signatures + approvals + main tx
+      let currentStepIndex = 0;
+
       // Sign any required signatures
-      if (bundle.requirements.signatures.length > 0) {
+      if (hasSignatures) {
+        // Call progress callback - wallet will open for signing
+        onProgress?.({ type: 'signing', stepIndex: currentStepIndex, totalSteps });
         await Promise.all(
           bundle.requirements.signatures.map((requirement) =>
             requirement.sign(walletClient, walletClient.account)
           )
         );
+        // After signing completes, mark as done and move to next step
+        currentStepIndex++;
       }
-
-      // Track if we sent prerequisite transactions (like approvals)
-      const hadPrerequisiteTxs = bundle.requirements.txs.length > 0;
       
-      // Send any prerequisite transactions and wait for them to be mined
-      if (hadPrerequisiteTxs) {
+      // Send any prerequisite transactions (like approvals) and wait for them to be mined
+      if (hasPrerequisiteTxs) {
+        // Get the contract address from the first prerequisite transaction (usually Permit2)
+        const firstPrereqTx = bundle.requirements.txs[0];
+        const contractAddress = firstPrereqTx.tx.to || '';
+        
+        // Call progress callback BEFORE sending - wallet will open for approval
+        onProgress?.({ 
+          type: 'approving', 
+          stepIndex: currentStepIndex, 
+          totalSteps,
+          contractAddress 
+        });
+        
         for (const { tx } of bundle.requirements.txs) {
+          // Wallet opens here for approval transaction
           const prereqHash = await walletClient.sendTransaction({
             ...tx,
             account: walletClient.account,
@@ -320,6 +400,7 @@ export function useVaultTransactions(vaultAddress?: string) {
         // After prerequisite transactions (like approvals), wait a moment for state to propagate
         // This ensures the simulation state reflects the new allowances before we estimate gas
         await new Promise(resolve => setTimeout(resolve, 1000));
+        currentStepIndex++;
       }
 
       // Send the main bundle transaction
@@ -347,7 +428,7 @@ export function useVaultTransactions(vaultAddress?: string) {
           const isAllowanceError = errorString.toLowerCase().includes('allowance') || 
                                    errorString.toLowerCase().includes('transfer amount exceeds');
           
-          if (hadPrerequisiteTxs && isAllowanceError) {
+          if (hasPrerequisiteTxs && isAllowanceError) {
             // Wait a bit longer for state to propagate, then recreate bundle
             await new Promise(resolve => setTimeout(resolve, 2000));
             
@@ -389,12 +470,29 @@ export function useVaultTransactions(vaultAddress?: string) {
         }
       }
 
+      // Notify that we're about to send the main transaction - wallet will open
+      onProgress?.({ 
+        type: 'confirming', 
+        stepIndex: currentStepIndex, 
+        totalSteps,
+        txHash: '' // Will be updated after sending
+      });
+
+      // Wallet opens here for main transaction
       const txHash = await walletClient.sendTransaction({
         to: bundleTx.to,
         data: bundleTx.data,
         value: bundleTx.value || BigInt(0),
         account: walletClient.account,
         gas: gasEstimate,
+      });
+
+      // Update progress with actual txHash after transaction is sent
+      onProgress?.({ 
+        type: 'confirming', 
+        stepIndex: currentStepIndex, 
+        totalSteps,
+        txHash 
       });
 
       return txHash;
@@ -413,7 +511,8 @@ export function useVaultTransactions(vaultAddress?: string) {
     simulationState,
     isSimulationPending,
     assetAddress,
-    ethBalance
+    ethBalance,
+    wethBalance
   ]);
 
   return {

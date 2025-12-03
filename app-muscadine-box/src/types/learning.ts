@@ -52,6 +52,7 @@ export const ELEMENT_PRIORITIES = {
   'overlay-vault-value': { base: 70, detailed: true, interactive: false },
   'vault-list': { base: 40, detailed: false, interactive: true },
   'vault-cards': { base: 35, detailed: false, interactive: true },
+  'vault-page': { base: 50, detailed: true, interactive: false },
   'total-assets': { base: 35, detailed: false, interactive: false },
   'liquid-assets': { base: 30, detailed: false, interactive: false },
   'morpho-vaults': { base: 30, detailed: false, interactive: false },
@@ -130,6 +131,14 @@ export const LESSONS_DATABASE: Record<string, Lesson> = {
     category: 'strategy',
     elementIds: ['vault-list', 'vault-cards'],
     priority: 40,
+  },
+  'how-vaults-work': {
+    id: 'how-vaults-work',
+    title: 'How Do Vaults Work?',
+    url: 'https://docs.muscadine.io/how-vaults-work',
+    category: 'general',
+    elementIds: ['vault-page'],
+    priority: 45,
   },
   'general-defi': {
     id: 'general-defi',

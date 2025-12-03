@@ -1,29 +1,70 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { VAULTS } from '@/lib/vaults';
+import { useElementTracker } from '@/hooks/useElementTracker';
 import VaultHero from '@/components/features/vault/VaultHero';
-import VaultStatGrid from '@/components/features/vault/VaultStatGrid';
+import VaultOverview from '@/components/features/vault/VaultOverview';
 import VaultActionCard from '@/components/features/vault/VaultActionCard';
-import VaultRiskDisclosures from '@/components/features/vault/VaultRiskDisclosures';
 import VaultTabs from '@/components/features/vault/VaultTabs';
+import VaultPosition from '@/components/features/vault/VaultPosition';
+import VaultHistory from '@/components/features/vault/VaultHistory';
 
 export default function VaultPage() {
   const params = useParams();
   const router = useRouter();
   const address = (params?.address as string) || '';
-  const [activeTab, setActiveTab] = useState<string>('risk');
+  const [activeTab, setActiveTab] = useState<string>('overview');
+
+  // Redirect safety tab to overview if somehow accessed
+  useEffect(() => {
+    if (activeTab === 'safety') {
+      setActiveTab('overview');
+    }
+  }, [activeTab]);
+  const [tabContentHeight, setTabContentHeight] = useState<string>('0px');
+  const heroRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Element tracking for learning system
+  const { registerElement, unregisterElement } = useElementTracker({ component: 'VaultPage' });
+  const registeredAddressRef = useRef<string | null>(null);
 
   // Find vault by address
   const vault = findVaultByAddress(address);
 
   // Fetch vault data
   const { vaultData, isLoading, hasError, refetch } = useVaultDataFetch(vault);
+
+  // Register vault-page element when vault is loaded (only once per vault address)
+  useEffect(() => {
+    const currentAddress = vault?.address;
+    
+    // Register if we have a vault address and haven't registered for this address yet
+    if (currentAddress && registeredAddressRef.current !== currentAddress) {
+      // Unregister previous if exists
+      if (registeredAddressRef.current) {
+        unregisterElement('vault-page');
+      }
+      // Register for current address
+      registerElement('vault-page', { type: 'general' });
+      registeredAddressRef.current = currentAddress;
+    }
+    
+    return () => {
+      // Only cleanup if we're actually unmounting (address is still the same)
+      if (registeredAddressRef.current === currentAddress) {
+        unregisterElement('vault-page');
+        registeredAddressRef.current = null;
+      }
+    };
+  }, [vault?.address, registerElement, unregisterElement]);
 
   // Preload all vault data
   const vaults: Vault[] = Object.values(VAULTS).map((v) => ({
@@ -33,6 +74,42 @@ export default function VaultPage() {
     chainId: v.chainId,
   }));
   useVaultListPreloader(vaults);
+
+  // Calculate exact height for tab content area
+  useEffect(() => {
+    const calculateHeight = () => {
+      if (!heroRef.current || !tabsRef.current || !containerRef.current) return;
+
+      const navbarHeight = 72; // var(--navbar-height)
+      const containerPadding = 48; // p-6 = 24px top + 24px bottom
+      const sectionGaps = 24; // mb-6 = 24px
+      const tabContentMargin = 0; // No margin needed since tabs have mb-6
+      
+      const heroHeight = heroRef.current.offsetHeight;
+      const tabsHeight = tabsRef.current.offsetHeight;
+      
+      const availableHeight = window.innerHeight - navbarHeight - containerPadding - sectionGaps;
+      const fixedHeights = heroHeight + tabsHeight + tabContentMargin;
+      const calculatedHeight = availableHeight - fixedHeights;
+      
+      setTabContentHeight(`${Math.max(400, calculatedHeight)}px`);
+    };
+
+    // Calculate on mount and when tab changes
+    calculateHeight();
+    
+    // Recalculate on window resize
+    window.addEventListener('resize', calculateHeight);
+    const resizeObserver = new ResizeObserver(calculateHeight);
+    
+    if (heroRef.current) resizeObserver.observe(heroRef.current);
+    if (tabsRef.current) resizeObserver.observe(tabsRef.current);
+    
+    return () => {
+      window.removeEventListener('resize', calculateHeight);
+      resizeObserver.disconnect();
+    };
+  }, [activeTab, vaultData]);
 
   // Redirect to dashboard if vault not found
   useEffect(() => {
@@ -86,61 +163,47 @@ export default function VaultPage() {
   }
 
   return (
-    <div className="w-full bg-[var(--background)] min-h-screen flex flex-col gap-8 p-12">
-
+    <div 
+      ref={containerRef}
+      className="w-full bg-[var(--background)] flex flex-col overflow-hidden p-8" 
+      style={{ height: 'calc(100vh - var(--navbar-height))' }}
+    >
       {/* Hero Section */}
-      <VaultHero vaultData={vaultData} />
+      <div ref={heroRef} className="flex-shrink-0 mb-6">
+        <VaultHero vaultData={vaultData} />
+      </div>
 
       {/* Main Content */}
-      <div className="flex flex-col w-full mx-auto py-8">
-        {/* Key Stats */}
-        
-        <VaultStatGrid vaultData={vaultData} />
-
-
+      <div className="flex flex-col w-full mx-auto flex-1 min-h-0">
         {/* Tab content & interaction card */}
-        <div className="grid grid-cols-[2fr_1fr] gap-6 py-8">
-            {/* Left Column - Tab Content (66% width) */}
-            <div className="bg-[var(--background)] flex flex-col">
-                <VaultTabs
-                    vaultData={vaultData}
-                    activeTab={activeTab}
-                    onTabChange={setActiveTab}
-                />
+        <div className="flex gap-6 flex-1 min-h-0">
+            {/* Left Column - Tab Content */}
+            <div className="flex-1 flex flex-col min-h-0">
+                <div ref={tabsRef} className="flex-shrink-0">
+                  <VaultTabs
+                      activeTab={activeTab}
+                      onTabChange={setActiveTab}
+                  />
+                </div>
 
-                {/* Tab Content */}
-                <div className="mt-6">
-                    {activeTab === 'risk' && <VaultRiskDisclosures vaultData={vaultData} />}
-                    {activeTab === 'overview' && (
-                    <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                        <p className="text-sm text-[var(--foreground-muted)]">
-                        Overview content coming soon...
-                        </p>
-                    </div>
-                    )}
-                    {activeTab === 'performance' && (
-                    <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                        <p className="text-sm text-[var(--foreground-muted)]">
-                        Performance content coming soon...
-                        </p>
-                    </div>
-                    )}
-                    {activeTab === 'activity' && (
-                    <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                        <p className="text-sm text-[var(--foreground-muted)]">
-                        Activity content coming soon...
-                        </p>
-                    </div>
-                    )}
+                {/* Tab Content - Scrollable */}
+                <div 
+                  className="overflow-y-auto pr-2 pl-6 tab-content-scroll"
+                  style={{ height: tabContentHeight }}
+                >
+                    {activeTab === 'overview' && <VaultOverview vaultData={vaultData} />}
+                    {activeTab === 'position' && <VaultPosition vaultData={vaultData} />}
+                    {activeTab === 'history' && <VaultHistory vaultData={vaultData} />}
                 </div>
             </div>
 
-            {/* Right Column - Action Card (33% width) */}
-            <VaultActionCard vaultData={vaultData} />
+            {/* Right Column - Action Card (Fixed Width) */}
+            <div className="w-80 flex-shrink-0 h-fit">
+                <VaultActionCard vaultData={vaultData} />
+            </div>
         </div>
-        </div>
+      </div>
 
     </div>
   );
 }
-

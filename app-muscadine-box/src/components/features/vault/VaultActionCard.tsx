@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAccount, useBalance, useReadContract } from 'wagmi';
+import { useQueryClient } from '@tanstack/react-query';
 import { formatUnits, parseUnits } from 'viem';
 import { MorphoVaultData } from '@/types/vault';
 import { useTransactionModal } from '@/contexts/TransactionModalContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { formatSmartCurrency, formatAssetAmountSafe, formatAssetAmountForInput, getTokenDisplayPrecision } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmountSafe, formatAssetAmountForInput, formatBigIntForInput } from '@/lib/formatter';
 import { Button } from '@/components/ui';
 import { useOnClickOutside } from '@/hooks/onClickOutside';
 
@@ -32,12 +33,33 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// Vault ABI to get asset address
+// Vault ABI for ERC-4626 functions (vault shares are ERC20 tokens)
 const VAULT_ABI = [
   {
     inputs: [],
     name: 'asset',
     outputs: [{ internalType: 'address', name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
+    name: 'convertToAssets',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'assets', type: 'uint256' }],
+    name: 'convertToShares',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'totalSupply',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
     stateMutability: 'view',
     type: 'function',
   },
@@ -48,26 +70,22 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   const [amount, setAmount] = useState<string>('');
   const [assetPrice, setAssetPrice] = useState<number | null>(null);
   const [assetAddress, setAssetAddress] = useState<string | null>(null);
-  const [assetBalance, setAssetBalance] = useState<string>('0.00');
+  const [assetBalanceBigInt, setAssetBalanceBigInt] = useState<bigint | null>(null);
   const [showApyBreakdown, setShowApyBreakdown] = useState(false);
+  const [showInterestBreakdown, setShowInterestBreakdown] = useState(false);
+  const [userTransactions, setUserTransactions] = useState<Array<{ type: 'deposit' | 'withdraw'; timestamp: number; assetsUsd?: number }>>([]);
   const apyBreakdownRef = useRef<HTMLDivElement>(null);
+  const interestBreakdownRef = useRef<HTMLDivElement>(null);
   const { isConnected, address } = useAccount();
-  const { openTransactionModal } = useTransactionModal();
-  const { morphoHoldings, tokenBalances } = useWallet();
+  const { openTransactionModal, modalState } = useTransactionModal();
+  const { morphoHoldings, tokenBalances, refreshBalances } = useWallet();
+  const queryClient = useQueryClient();
+  const lastSuccessTxHash = useRef<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Helper function to format asset amount for display using the generalized formatter
-  // Rounds DOWN to ensure formatted value never exceeds the original (important for validation)
-  const formatAssetAmount = (value: number): string => {
-    return formatAssetAmountSafe(value, {
-      decimals: vaultData.assetDecimals ?? 18,
-      symbol: vaultData.symbol,
-      roundMode: 'down',
-      trimZeros: true,
-    });
-  };
-
-  // Click outside to close APY breakdown
+  // Click outside to close breakdowns
   useOnClickOutside(apyBreakdownRef, () => setShowApyBreakdown(false));
+  useOnClickOutside(interestBreakdownRef, () => setShowInterestBreakdown(false));
 
   const isDepositDisabled = !isConnected;
 
@@ -92,76 +110,115 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   }, [vaultAssetAddress]);
 
   // Get ETH balance (for WETH vaults)
-  const { data: ethBalance } = useBalance({
+  // Disable caching to ensure balances update immediately after transactions
+  const { data: ethBalance, refetch: refetchEthBalance } = useBalance({
     address: address as `0x${string}`,
-    query: { enabled: !!address && vaultData.symbol.toUpperCase() === 'WETH' },
+    query: { 
+      enabled: !!address && vaultData.symbol.toUpperCase() === 'WETH',
+      staleTime: 0, // Always consider data stale
+      gcTime: 0, // Don't cache data
+      refetchOnMount: true, // Always refetch on mount
+      refetchOnWindowFocus: true, // Refetch when window regains focus
+    },
   });
 
   // Get WETH token balance (for WETH vaults - need to sum with ETH)
-  const { data: wethTokenBalance } = useReadContract({
+  // Disable caching to ensure balances update immediately after transactions
+  const { data: wethTokenBalance, refetch: refetchWethBalance } = useReadContract({
     address: assetAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!assetAddress && !!address && vaultData.symbol.toUpperCase() === 'WETH' },
+    query: { 
+      enabled: !!assetAddress && !!address && vaultData.symbol.toUpperCase() === 'WETH',
+      staleTime: 0, // Always consider data stale
+      gcTime: 0, // Don't cache data
+      refetchOnMount: true, // Always refetch on mount
+      refetchOnWindowFocus: true, // Refetch when window regains focus
+    },
   });
 
   // Get ERC20 token balance (for non-WETH tokens)
-  const { data: tokenBalance } = useReadContract({
+  // Disable caching to ensure balances update immediately after transactions
+  const { data: tokenBalance, refetch: refetchTokenBalance } = useReadContract({
     address: assetAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!assetAddress && !!address && vaultData.symbol.toUpperCase() !== 'WETH' },
+    query: { 
+      enabled: !!assetAddress && !!address && vaultData.symbol.toUpperCase() !== 'WETH',
+      staleTime: 0, // Always consider data stale
+      gcTime: 0, // Don't cache data
+      refetchOnMount: true, // Always refetch on mount
+      refetchOnWindowFocus: true, // Refetch when window regains focus
+    },
   });
 
-  // Calculate and format asset balance
-  // Use formatAssetAmount to ensure consistency with MAX button and input formatting
+  // Handle transaction success: refresh balances and clear input
   useEffect(() => {
-    if (!isConnected || !address) {
-      setAssetBalance('0.00');
-      return;
-    }
-
-    const symbol = vaultData.symbol.toUpperCase();
-    let balanceValue: number = 0;
+    const isThisVault = modalState.vaultAddress?.toLowerCase() === vaultData.address.toLowerCase();
+    const isSuccess = modalState.status === 'success';
+    const isNewTx = modalState.txHash && modalState.txHash !== lastSuccessTxHash.current;
     
-    // For WETH, sum both ETH and WETH balances
-    if (symbol === 'WETH') {
-      let ethAmount = 0;
-      let wethAmount = 0;
+    if (isSuccess && isThisVault && isNewTx) {
+      lastSuccessTxHash.current = modalState.txHash;
+      setAmount('');
       
-      if (ethBalance) {
-        ethAmount = parseFloat(ethBalance.formatted);
-      }
+      const refreshData = async () => {
+        try {
+          queryClient.invalidateQueries();
+          refreshBalances();
+          
+          const symbol = vaultData.symbol.toUpperCase();
+          if (symbol === 'WETH') {
+            refetchEthBalance();
+            refetchWethBalance();
+          } else {
+            refetchTokenBalance();
+          }
+          
+          setRefreshTrigger(prev => prev + 1);
+          
+          // Refresh again after blockchain state updates
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          queryClient.invalidateQueries();
+          refreshBalances();
+          
+          if (symbol === 'WETH') {
+            refetchEthBalance();
+            refetchWethBalance();
+          } else {
+            refetchTokenBalance();
+          }
+          
+          setRefreshTrigger(prev => prev + 1);
+        } catch (error) {
+          console.error('Error refreshing balances after transaction:', error);
+        }
+      };
       
-      if (wethTokenBalance && vaultData.assetDecimals !== undefined) {
-        const wethDecimalValue = formatUnits(wethTokenBalance as bigint, vaultData.assetDecimals);
-        wethAmount = parseFloat(wethDecimalValue);
-      }
-      
-      balanceValue = ethAmount + wethAmount;
+      refreshData();
     }
-    // For USDC, check wallet context first
-    else if (symbol === 'USDC') {
-      const usdcBalance = tokenBalances.find(tb => tb.symbol === 'USDC');
-      if (usdcBalance) {
-        balanceValue = parseFloat(usdcBalance.formatted);
-      }
-    }
-    // For other tokens, use token balance from contract
-    else if (tokenBalance && vaultData.assetDecimals !== undefined) {
-      const decimalValue = formatUnits(tokenBalance as bigint, vaultData.assetDecimals);
-      balanceValue = parseFloat(decimalValue);
-    }
+  }, [
+    modalState.status, 
+    modalState.vaultAddress, 
+    modalState.txHash,
+    vaultData.address, 
+    vaultData.symbol,
+    refreshBalances,
+    refetchEthBalance,
+    refetchWethBalance,
+    refetchTokenBalance,
+    queryClient
+  ]);
 
-    // Use formatAssetAmount to ensure consistency with MAX button
-    setAssetBalance(isNaN(balanceValue) || balanceValue <= 0 ? '0.00' : formatAssetAmount(balanceValue));
-  }, [isConnected, address, ethBalance, wethTokenBalance, tokenBalance, tokenBalances, vaultData.symbol, vaultData.assetDecimals]);
+  // Calculate asset balance for display (derived from calculateMaxDepositable)
+  // This is kept minimal - actual balance calculation happens in calculateMaxDepositable
 
   // Helper function to calculate max depositable amount by rounding DOWN the BigInt balance
   // This prevents attempting to deposit more than available due to rounding issues
   // Uses full asset decimals precision to avoid leaving trace amounts
+  // Include refreshTrigger to recalculate when balances are refreshed after transactions
   const calculateMaxDepositable = useMemo(() => {
     const symbol = vaultData.symbol.toUpperCase();
     
@@ -190,14 +247,9 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
         return 0;
       }
       
-      // Convert total to decimal representation
+      // Convert total to decimal representation - no rounding
       const decimalValue = formatUnits(totalWei, decimals);
-      const numValue = parseFloat(decimalValue);
-      // Round down to ensure we never exceed the actual balance
-      const precisionMultiplier = Math.pow(10, decimals);
-      const roundedDown = Math.floor(numValue * precisionMultiplier) / precisionMultiplier;
-      // Additional safety check: ensure we never return more than what formatUnits gives us
-      return Math.min(roundedDown, numValue);
+      return parseFloat(decimalValue);
     }
     
     // For USDC, check wallet context first
@@ -205,6 +257,8 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       const usdcBalance = tokenBalances.find(tb => tb.symbol === 'USDC');
       if (usdcBalance?.balance) {
         const decimals = usdcBalance.decimals || 6;
+        // Store the BigInt balance for direct formatting
+        setAssetBalanceBigInt(usdcBalance.balance);
         // Use the exact decimal value from the contract (no extra rounding)
         return parseFloat(formatUnits(usdcBalance.balance, decimals));
       }
@@ -213,22 +267,32 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
     // For other tokens (like cbBTC), use token balance from contract
     if (tokenBalance && vaultData.assetDecimals !== undefined) {
       const decimals = vaultData.assetDecimals;
-      // Work with BigInt directly to avoid floating point precision loss
-      // The balance is already in the smallest unit (e.g., satoshis for BTC)
-      // We just need to convert it to decimal representation
+      // Store the BigInt balance for direct formatting (avoids float precision issues)
       const balanceBigInt = tokenBalance as bigint;
+      setAssetBalanceBigInt(balanceBigInt);
       const decimalValue = formatUnits(balanceBigInt, decimals);
       // Parse to float - this should preserve the value correctly
       // No need to round down here since we're working with the exact balance
       return parseFloat(decimalValue);
     }
     
+    // Reset BigInt balance if no balance found
+    setAssetBalanceBigInt(null);
+    
     return 0;
-  }, [ethBalance, wethTokenBalance, tokenBalance, tokenBalances, vaultData.symbol, vaultData.assetDecimals]);
+  }, [ethBalance, wethTokenBalance, tokenBalance, tokenBalances, vaultData.symbol, vaultData.assetDecimals, refreshTrigger]);
 
   // Fetch asset price
   useEffect(() => {
     const fetchAssetPrice = async () => {
+      const vaultSymbol = vaultData.symbol.toUpperCase();
+      
+      // For stablecoins, always use exactly 1.0 (don't fetch from API)
+      if (vaultSymbol === 'USDC' || vaultSymbol === 'USDT' || vaultSymbol === 'DAI') {
+        setAssetPrice(1);
+        return;
+      }
+      
       try {
         // Map vault symbols to price API symbols (handle both original and uppercase)
         const symbolMap: Record<string, string> = {
@@ -239,7 +303,6 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
           'WBTC': 'BTC',
         };
         
-        const vaultSymbol = vaultData.symbol.toUpperCase();
         // Check both uppercase and original case
         const priceSymbol = symbolMap[vaultSymbol] || symbolMap[vaultData.symbol] || vaultSymbol;
         
@@ -255,23 +318,12 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
         if (price && typeof price === 'number' && price > 0) {
           setAssetPrice(price);
         } else {
-          // Default prices for stablecoins
-          if (vaultSymbol === 'USDC' || vaultSymbol === 'USDT' || vaultSymbol === 'DAI') {
-            setAssetPrice(1);
-          } else {
-            console.warn(`Price not found for ${vaultSymbol} (mapped to ${priceSymbol}), got:`, data);
-            setAssetPrice(null);
-          }
+          console.warn(`Price not found for ${vaultSymbol} (mapped to ${priceSymbol}), got:`, data);
+          setAssetPrice(null);
         }
       } catch (error) {
         console.error('Failed to fetch asset price:', error);
-        // Default prices for stablecoins
-        const vaultSymbol = vaultData.symbol.toUpperCase();
-        if (vaultSymbol === 'USDC' || vaultSymbol === 'USDT' || vaultSymbol === 'DAI') {
-          setAssetPrice(1);
-        } else {
-          setAssetPrice(null);
-        }
+        setAssetPrice(null);
       }
     };
 
@@ -285,6 +337,97 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
 
   const userVaultValueUsd = currentVaultPosition ? 
     (parseFloat(currentVaultPosition.shares) / 1e18) * currentVaultPosition.vault.state.sharePriceUsd : 0;
+
+  // Get user's shares as BigInt for convertToAssets call
+  const userSharesBigInt = currentVaultPosition 
+    ? BigInt(currentVaultPosition.shares) 
+    : BigInt(0);
+
+  // Get vault's totalSupply (all vault shares) directly from contract
+  // This is the authoritative source per Morpho/ERC-4626 documentation
+  const { data: vaultTotalSupply } = useReadContract({
+    address: vaultData.address as `0x${string}`,
+    abi: VAULT_ABI,
+    functionName: 'totalSupply',
+    query: { 
+      enabled: !!vaultData.address,
+    },
+  });
+
+  // Use ERC-4626 convertToAssets function to get accurate withdrawable assets
+  // This is the proper way according to Morpho/ERC-4626 standard
+  const { data: withdrawableAssetsBigInt } = useReadContract({
+    address: vaultData.address as `0x${string}`,
+    abi: VAULT_ABI,
+    functionName: 'convertToAssets',
+    args: userSharesBigInt > 0 ? [userSharesBigInt] : undefined,
+    query: { 
+      enabled: !!vaultData.address && !!currentVaultPosition && userSharesBigInt > 0,
+    },
+  });
+
+
+  // Fetch user transactions to calculate interest earned
+  useEffect(() => {
+    const fetchActivity = async () => {
+      if (!address || !currentVaultPosition) {
+        setUserTransactions([]);
+        return;
+      }
+
+      try {
+        const userResponse = await fetch(
+          `/api/vaults/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`
+        );
+        const userResponseData = await userResponse.json();
+        setUserTransactions(userResponseData.transactions || []);
+      } catch (error) {
+        console.error('Failed to fetch activity:', error);
+        setUserTransactions([]);
+      }
+    };
+
+    fetchActivity();
+  }, [vaultData.address, vaultData.chainId, address, currentVaultPosition]);
+
+  // Calculate interest earned from transactions
+  const calculateInterestEarned = useMemo(() => {
+    if (!currentVaultPosition || userTransactions.length === 0) {
+      return { totalInterest: 0, regularInterest: 0, rewardsInterest: 0 };
+    }
+
+    const sorted = [...userTransactions].sort((a, b) => a.timestamp - b.timestamp);
+    
+    const totalDeposits = sorted
+      .filter(tx => tx.type === 'deposit')
+      .reduce((sum, tx) => sum + (tx.assetsUsd || 0), 0);
+    
+    const totalWithdrawals = sorted
+      .filter(tx => tx.type === 'withdraw')
+      .reduce((sum, tx) => sum + (tx.assetsUsd || 0), 0);
+    
+    const netInvested = totalDeposits - totalWithdrawals;
+    const totalEarnings = userVaultValueUsd - netInvested;
+    
+    // Split earnings between interest and rewards based on APY ratios
+    const netApyPercent = vaultData.netApyWithoutRewards * 100;
+    const rewardsAprPercent = vaultData.rewardsApr * 100;
+    const totalApyPercent = netApyPercent + rewardsAprPercent;
+    
+    let regularInterest = totalEarnings;
+    let rewardsInterest = 0;
+    
+    if (totalApyPercent > 0) {
+      regularInterest = totalEarnings * (netApyPercent / totalApyPercent);
+      rewardsInterest = totalEarnings * (rewardsAprPercent / totalApyPercent);
+    }
+    
+    return {
+      totalInterest: totalEarnings,
+      regularInterest,
+      rewardsInterest,
+    };
+  }, [currentVaultPosition, userTransactions, userVaultValueUsd, vaultData]);
 
   // Calculate projected earnings in USD
   // For deposit: current deposits + entered amount (if any)
@@ -312,36 +455,62 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   const yearlyInterest = enteredAmount > 0 ? newYearlyInterest : oldYearlyInterest;
   const monthlyInterest = enteredAmount > 0 ? newMonthlyInterest : oldMonthlyInterest;
 
-  // Calculate max values and remaining balances
-  // Use calculateMaxDepositable to ensure we never exceed actual balance due to rounding
+  // Calculate max values
   const maxDepositRaw = calculateMaxDepositable;
   
-  // Get display precision for this token (uses display precision, not contract decimals)
-  const symbol = vaultData.symbol.toUpperCase();
-  const displayPrecision = getTokenDisplayPrecision(vaultData.symbol, vaultData.assetDecimals);
-  
-  // Round down maxDeposit to display precision to match what formatAssetAmount produces
-  // This ensures the comparison uses the same precision as the formatted display value
-  const precisionMultiplier = Math.pow(10, displayPrecision);
-  const maxDeposit = Math.floor(maxDepositRaw * precisionMultiplier) / precisionMultiplier;
-  
-  // Convert withdrawable amount from USD to asset units
-  const maxWithdrawRaw = assetPrice && userVaultValueUsd > 0 ? userVaultValueUsd / assetPrice : 0;
-  // Round down maxWithdraw to display precision (don't convert through string)
-  const maxWithdraw = Math.floor(maxWithdrawRaw * precisionMultiplier) / precisionMultiplier;
+  // Calculate withdrawable amount using ERC-4626 convertToAssets function
+  // Per Morpho documentation: use vault's totalSupply (all vault shares) for accurate calculation
+  let maxWithdrawRaw = 0;
+  if (withdrawableAssetsBigInt && withdrawableAssetsBigInt > 0) {
+    // Primary: Use convertToAssets from contract (most accurate, handles all edge cases)
+    // Don't convert to float - use BigInt directly in setMaxAmount to avoid precision loss
+    const assetDecimals = vaultData.assetDecimals ?? 18;
+    // Store as float for validation checks, but prefer BigInt for formatting
+    const formatted = formatUnits(withdrawableAssetsBigInt, assetDecimals);
+    maxWithdrawRaw = parseFloat(formatted);
+  } else if (currentVaultPosition && vaultData.totalAssets && vaultTotalSupply) {
+    // Fallback: Use vault's totalSupply from contract (per Morpho docs recommendation)
+    // Formula: withdrawableAssets = (userShares / totalSupply) * totalAssets
+    const userShares = parseFloat(currentVaultPosition.shares) / 1e18;
+    const totalSupply = parseFloat(vaultTotalSupply.toString()) / 1e18;
+    const totalAssets = parseFloat(vaultData.totalAssets || '0') / Math.pow(10, vaultData.assetDecimals ?? 18);
+    
+    if (totalSupply > 0) {
+      maxWithdrawRaw = (userShares / totalSupply) * totalAssets;
+    }
+  } else if (currentVaultPosition && vaultData.totalAssets && currentVaultPosition.vault.state.totalSupply) {
+    // Fallback 2: Use totalSupply from position data if contract call fails
+    const userShares = parseFloat(currentVaultPosition.shares) / 1e18;
+    const totalSupply = parseFloat(currentVaultPosition.vault.state.totalSupply) / 1e18;
+    const totalAssets = parseFloat(vaultData.totalAssets || '0') / Math.pow(10, vaultData.assetDecimals ?? 18);
+    
+    if (totalSupply > 0) {
+      maxWithdrawRaw = (userShares / totalSupply) * totalAssets;
+    }
+  } else if (assetPrice && userVaultValueUsd > 0) {
+    // Last resort: USD conversion (least accurate)
+    maxWithdrawRaw = userVaultValueUsd / assetPrice;
+  }
   
   // Parse current amount once, used throughout
   const currentAmount = parseFloat(amount) || 0;
   
-  const remainingDeposit = Math.max(0, maxDeposit - currentAmount);
-  // For withdraw, calculate remaining in asset units (not USD)
-  const remainingWithdraw = Math.max(0, maxWithdraw - currentAmount);
+  // Calculate remaining balances
+  const remainingDeposit = Math.max(0, maxDepositRaw - currentAmount);
+  const remainingWithdraw = Math.max(0, maxWithdrawRaw - currentAmount);
 
   // Check if amount exceeds max (with small epsilon for floating-point precision)
-  // Use a small tolerance to account for floating-point arithmetic errors
-  const EPSILON = 1e-8; // Small value to handle floating-point precision issues
-  const exceedsMaxDeposit = currentAmount > maxDeposit + EPSILON;
-  const exceedsMaxWithdraw = currentAmount > maxWithdraw + EPSILON;
+  const EPSILON = 1e-8;
+  const exceedsMaxDeposit = currentAmount > maxDepositRaw + EPSILON;
+  const exceedsMaxWithdraw = currentAmount > maxWithdrawRaw + EPSILON;
+  
+  // Format balance for display
+  const assetBalance = maxDepositRaw > 0 ? formatAssetAmountSafe(maxDepositRaw, {
+    decimals: vaultData.assetDecimals ?? 18,
+    symbol: vaultData.symbol,
+    roundMode: 'down',
+    trimZeros: true,
+  }) : '0.00';
 
   const handleDeposit = () => {
     if (!isConnected) {
@@ -353,15 +522,7 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       return;
     }
 
-    // Ensure amount is a valid string
-    const amountToPass = amount && amount.trim() ? amount.trim() : '';
-    
-    console.log('VaultActionCard - handleDeposit', {
-      amount,
-      amountType: typeof amount,
-      amountToPass,
-      currentAmount,
-    });
+    const amountToPass = amount?.trim() || '';
     
     if (!amountToPass || parseFloat(amountToPass) <= 0) {
       alert('Please enter a valid amount');
@@ -383,15 +544,7 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       return;
     }
 
-    // Ensure amount is a valid string
-    const amountToPass = amount && amount.trim() ? amount.trim() : '';
-    
-    console.log('VaultActionCard - handleWithdraw', {
-      amount,
-      amountType: typeof amount,
-      amountToPass,
-      currentAmount,
-    });
+    const amountToPass = amount?.trim() || '';
     
     if (!amountToPass || parseFloat(amountToPass) <= 0) {
       alert('Please enter a valid amount');
@@ -432,24 +585,38 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   };
 
   // Set max amount
-  // Use formatAssetAmountForInput to preserve full precision for transaction parsing
+  // Use formatter library functions for consistent formatting
   const setMaxAmount = (isDeposit: boolean) => {
+    const contractDecimals = vaultData.assetDecimals ?? 18;
+    
     if (isDeposit) {
-      // Format with full contract decimals precision (no trimming)
-      // This ensures parseUnits can accurately reconstruct the exact amount
-      setAmount(formatAssetAmountForInput(maxDepositRaw, vaultData.assetDecimals ?? 18, 'down'));
+      // Use BigInt directly if available (BTC, USDC, etc.) - most accurate, avoids float precision issues
+      if (assetBalanceBigInt !== null) {
+        setAmount(formatBigIntForInput(assetBalanceBigInt, contractDecimals));
+        return;
+      }
+      
+      // Fallback for WETH: Use maxDepositRaw with formatAssetAmountForInput
+      // This handles the float precision carefully with truncation
+      setAmount(formatAssetAmountForInput(maxDepositRaw, contractDecimals, 'down'));
     } else {
-      setAmount(formatAssetAmountForInput(maxWithdraw, vaultData.assetDecimals ?? 18, 'down'));
+      // For withdraw, use BigInt directly if available (most accurate, avoids float precision issues)
+      if (withdrawableAssetsBigInt && withdrawableAssetsBigInt > 0) {
+        setAmount(formatBigIntForInput(withdrawableAssetsBigInt, contractDecimals));
+      } else {
+        // Fallback: Use maxWithdrawRaw with formatAssetAmountForInput
+        setAmount(formatAssetAmountForInput(maxWithdrawRaw, contractDecimals, 'down'));
+      }
     }
   };
 
   return (
     <div className="flex flex-col gap-6">
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-[var(--border-subtle)]">
+      <div className="flex gap-2 border-b border-[var(--border-subtle)]">
         <button
           onClick={() => setActiveTab('deposit')}
-          className={`flex-1 px-4 py-3 text-sm font-medium transition-colors relative ${
+          className={`flex-1 px-6 py-4 text-base font-medium transition-colors relative ${
             activeTab === 'deposit'
               ? 'text-[var(--foreground)]'
               : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -457,12 +624,12 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
         >
           Deposit
           {activeTab === 'deposit' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)] -mb-px" />
           )}
         </button>
         <button
           onClick={() => setActiveTab('withdraw')}
-          className={`flex-1 px-4 py-3 text-sm font-medium transition-colors relative ${
+          className={`flex-1 px-6 py-4 text-base font-medium transition-colors relative ${
             activeTab === 'withdraw'
               ? 'text-[var(--foreground)]'
               : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -470,7 +637,7 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
         >
           Withdraw
           {activeTab === 'withdraw' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)] -mb-px" />
           )}
         </button>
       </div>
@@ -503,12 +670,19 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   const val = parseFloat(e.target.value);
                   if (isNaN(val) || val < 0) {
                     setAmount('');
-                  } else if (val > maxDeposit + EPSILON) {
-                    // Use formatAssetAmountForInput to preserve full precision for transaction parsing
-                    setAmount(formatAssetAmountForInput(maxDeposit, vaultData.assetDecimals ?? 18, 'down'));
+                  } else if (val > maxDepositRaw + EPSILON) {
+                    // Cap at raw max deposit value - use formatter for consistency
+                    const contractDecimals = vaultData.assetDecimals ?? 18;
+                    // Use BigInt if available for maximum accuracy
+                    if (assetBalanceBigInt !== null) {
+                      setAmount(formatBigIntForInput(assetBalanceBigInt, contractDecimals));
+                    } else {
+                      setAmount(formatAssetAmountForInput(maxDepositRaw, contractDecimals, 'down'));
+                    }
                   } else if (val > 0) {
-                    // Format with full precision to ensure parseUnits can accurately reconstruct
-                    setAmount(formatAssetAmountForInput(val, vaultData.assetDecimals ?? 18, 'down'));
+                    // Format user input with formatter to ensure proper decimal places
+                    const contractDecimals = vaultData.assetDecimals ?? 18;
+                    setAmount(formatAssetAmountForInput(val, contractDecimals, 'down'));
                   } else {
                     setAmount('');
                   }
@@ -537,7 +711,12 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   : 'text-[var(--foreground-muted)]'
               }`}>
                 {currentAmount > 0 
-                  ? `${formatAssetAmount(remainingDeposit)} ${vaultData.symbol} remaining`
+                  ? `${formatAssetAmountSafe(remainingDeposit, {
+                      decimals: vaultData.assetDecimals ?? 18,
+                      symbol: vaultData.symbol,
+                      roundMode: 'down',
+                      trimZeros: true,
+                    })} ${vaultData.symbol} remaining`
                   : `${assetBalance} ${vaultData.symbol} available`
                 }
               </p>
@@ -551,6 +730,52 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   <span className="text-sm text-[var(--foreground-secondary)]">Current Deposits</span>
                   <span className="text-sm font-medium text-[var(--foreground)]">
                     ${userVaultValueUsd.toFixed(4)}
+                  </span>
+                </div>
+              )}
+
+              {/* Interest Earned - Only show if positive (negative values are due to asset price changes, not actual negative interest) */}
+              {isConnected && currentVaultPosition && userTransactions.length > 0 && calculateInterestEarned.totalInterest > 0 && (
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1.5 relative">
+                    <span className="text-sm text-[var(--foreground-secondary)]">Interest Earned</span>
+                    <div ref={interestBreakdownRef}>
+                      <button
+                        onClick={() => setShowInterestBreakdown(!showInterestBreakdown)}
+                        className="w-4 h-4 rounded-full border border-[var(--foreground-secondary)] flex items-center justify-center hover:bg-[var(--background-elevated)] transition-colors"
+                        aria-label="Interest breakdown"
+                      >
+                        <span className="text-[10px] text-[var(--foreground-secondary)] font-semibold">i</span>
+                      </button>
+                      
+                      {showInterestBreakdown && (
+                        <div className="absolute top-full left-0 mt-2 z-10 bg-[var(--surface-elevated)] rounded-lg p-4 text-sm shadow-lg border border-[var(--border-subtle)] min-w-[200px]">
+                          <div className="mb-3 pb-3 border-b border-[var(--border-subtle)]">
+                            <span className="text-sm font-semibold text-[var(--foreground)]">Interest Breakdown</span>
+                          </div>
+                          <div className="space-y-2.5">
+                            <div className="flex justify-between items-center gap-4">
+                              <span className="text-[var(--foreground)]">Regular Interest</span>
+                              <span className="text-[var(--foreground)] font-medium">
+                                {formatSmartCurrency(calculateInterestEarned.regularInterest)}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center gap-4">
+                              <span className="text-[var(--foreground)]">
+                                {vaultData.rewardSymbol || 'Morpho'} Rewards
+                              </span>
+                              <span className="text-[var(--foreground)] font-medium">
+                                {formatSmartCurrency(calculateInterestEarned.rewardsInterest)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium text-[var(--success)]">
+                    +{formatSmartCurrency(calculateInterestEarned.totalInterest)}
                   </span>
                 </div>
               )}
@@ -700,7 +925,7 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   <button
                     type="button"
                     onClick={() => setMaxAmount(false)}
-                    disabled={!isConnected || maxWithdraw === 0}
+                    disabled={!isConnected || maxWithdrawRaw <= 0}
                     className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     MAX
@@ -717,12 +942,12 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   if (isNaN(val) || val < 0) {
                     setAmount('');
                   } else {
-                    // Use formatAssetAmountForInput to preserve full precision for transaction parsing
-                    if (val > maxWithdraw + EPSILON) {
-                      setAmount(formatAssetAmountForInput(maxWithdraw, vaultData.assetDecimals ?? 18, 'down'));
+                    // Use formatter for consistency
+                    const contractDecimals = vaultData.assetDecimals ?? 18;
+                    if (val > maxWithdrawRaw + EPSILON) {
+                      setAmount(formatAssetAmountForInput(maxWithdrawRaw, contractDecimals, 'down'));
                     } else if (val > 0) {
-                      // Format with full precision to ensure parseUnits can accurately reconstruct
-                      setAmount(formatAssetAmountForInput(val, vaultData.assetDecimals ?? 18, 'down'));
+                      setAmount(formatAssetAmountForInput(val, contractDecimals, 'down'));
                     } else {
                       setAmount('');
                     }
@@ -738,7 +963,12 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
               />
               {exceedsMaxWithdraw && (
                 <p className="text-xs text-[var(--danger)]">
-                  Amount exceeds your available balance of {formatAssetAmount(maxWithdraw)} {vaultData.symbol}
+                  Amount exceeds your available balance of {formatAssetAmountSafe(maxWithdrawRaw, {
+                    decimals: vaultData.assetDecimals ?? 18,
+                    symbol: vaultData.symbol,
+                    roundMode: 'down',
+                    trimZeros: true,
+                  })} {vaultData.symbol}
                 </p>
               )}
               {parseFloat(amount) > 0 && !exceedsMaxWithdraw && (
@@ -753,8 +983,18 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
               }`}>
                 {currentVaultPosition 
                   ? (currentAmount > 0
-                      ? `${formatAssetAmount(remainingWithdraw)} ${vaultData.symbol} remaining`
-                      : `${formatAssetAmount(maxWithdraw)} ${vaultData.symbol} available`
+                      ? `${formatAssetAmountSafe(remainingWithdraw, {
+                          decimals: vaultData.assetDecimals ?? 18,
+                          symbol: vaultData.symbol,
+                          roundMode: 'down',
+                          trimZeros: true,
+                        })} ${vaultData.symbol} remaining`
+                      : `${formatAssetAmountSafe(maxWithdrawRaw, {
+                          decimals: vaultData.assetDecimals ?? 18,
+                          symbol: vaultData.symbol,
+                          roundMode: 'down',
+                          trimZeros: true,
+                        })} ${vaultData.symbol} available`
                     )
                   : `0.00 ${vaultData.symbol} available`
                 }
@@ -769,6 +1009,52 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
                   <span className="text-sm text-[var(--foreground-secondary)]">Current Deposits</span>
                   <span className="text-sm font-medium text-[var(--foreground)]">
                     ${userVaultValueUsd.toFixed(4)}
+                  </span>
+                </div>
+              )}
+
+              {/* Interest Earned - Only show if positive (negative values are due to asset price changes, not actual negative interest) */}
+              {isConnected && currentVaultPosition && userTransactions.length > 0 && calculateInterestEarned.totalInterest > 0 && (
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1.5 relative">
+                    <span className="text-sm text-[var(--foreground-secondary)]">Interest Earned</span>
+                    <div ref={interestBreakdownRef}>
+                      <button
+                        onClick={() => setShowInterestBreakdown(!showInterestBreakdown)}
+                        className="w-4 h-4 rounded-full border border-[var(--foreground-secondary)] flex items-center justify-center hover:bg-[var(--background-elevated)] transition-colors"
+                        aria-label="Interest breakdown"
+                      >
+                        <span className="text-[10px] text-[var(--foreground-secondary)] font-semibold">i</span>
+                      </button>
+                      
+                      {showInterestBreakdown && (
+                        <div className="absolute top-full left-0 mt-2 z-10 bg-[var(--surface-elevated)] rounded-lg p-4 text-sm shadow-lg border border-[var(--border-subtle)] min-w-[200px]">
+                          <div className="mb-3 pb-3 border-b border-[var(--border-subtle)]">
+                            <span className="text-sm font-semibold text-[var(--foreground)]">Interest Breakdown</span>
+                          </div>
+                          <div className="space-y-2.5">
+                            <div className="flex justify-between items-center gap-4">
+                              <span className="text-[var(--foreground)]">Regular Interest</span>
+                              <span className="text-[var(--foreground)] font-medium">
+                                {formatSmartCurrency(calculateInterestEarned.regularInterest)}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center gap-4">
+                              <span className="text-[var(--foreground)]">
+                                {vaultData.rewardSymbol || 'Morpho'} Rewards
+                              </span>
+                              <span className="text-[var(--foreground)] font-medium">
+                                {formatSmartCurrency(calculateInterestEarned.rewardsInterest)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium text-[var(--success)]">
+                    +{formatSmartCurrency(calculateInterestEarned.totalInterest)}
                   </span>
                 </div>
               )}

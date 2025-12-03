@@ -31,6 +31,10 @@ export interface Vault {
     curatorAddress?: string;
     guardianAddress?: string;
     oracleAddress?: string;
+    ownerAddress?: string; // Vault owner address
+    
+    // Allocators
+    allocators?: string[]; // Array of allocator addresses
     
     // Fees
     performanceFee?: number; // Percentage
@@ -69,6 +73,8 @@ export interface MorphoVaultData extends Vault {
     timelockDuration: number;
     guardianAddress: string;
     oracleAddress: string;
+    ownerAddress: string;
+    allocators: string[];
     allocatedMarkets: string[];
     status: 'active' | 'paused' | 'deprecated';
     curator: string;

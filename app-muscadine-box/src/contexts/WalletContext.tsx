@@ -245,7 +245,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
       const tokenAddresses = data.result?.tokenBalances || [];
       
-      console.log(`Found ${tokenAddresses.length} tokens from Alchemy API`);
 
       // Fetch metadata for each token in parallel
       const tokenMetadataPromises = tokenAddresses
@@ -282,10 +281,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             const symbol = metadataData.result.symbol || 'UNKNOWN';
             const formatted = (Number(balance) / Math.pow(10, decimals)).toString();
 
-            // Debug logging for cbBTC
-            if (symbol.toUpperCase().includes('BTC') || symbol.toUpperCase().includes('CBBTC')) {
-              console.log('Found BTC-related token:', { symbol, address: token.contractAddress, balance: formatted });
-            }
 
             return {
               address: token.contractAddress,

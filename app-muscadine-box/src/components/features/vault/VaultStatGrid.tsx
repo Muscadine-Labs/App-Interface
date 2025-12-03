@@ -3,7 +3,6 @@
 import { useState, useRef } from 'react';
 import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
 import { MorphoVaultData } from '@/types/vault';
-import { InfoIcon } from '@/components/ui';
 import { useOnClickOutside } from '@/hooks/onClickOutside';
 
 interface VaultStatGridProps {
@@ -82,7 +81,7 @@ function StatCard({ label, value, subValue, tooltip, showApyBreakdown, vaultData
             aria-label={tooltip}
             title={tooltip}
           >
-            <InfoIcon size="sm" />
+            <span className="text-[10px] text-[var(--foreground-secondary)] font-semibold">i</span>
           </button>
         )}
       </div>
@@ -127,7 +126,7 @@ export default function VaultStatGrid({ vaultData }: VaultStatGridProps) {
       ) || []);
 
   return (
-    <div className="flex w-full justify-between">
+    <div className="flex w-full justify-between mt-2">
       {/* Total Deposits */}
       <StatCard
         label="Total Deposits"
@@ -143,7 +142,7 @@ export default function VaultStatGrid({ vaultData }: VaultStatGridProps) {
       />
 
       {/* Exposure */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         <span className="text-sm text-[var(--foreground-secondary)]">Exposure</span>
         <div className="flex items-center gap-2 flex-wrap">
           {exposureAssets.length > 0 ? (

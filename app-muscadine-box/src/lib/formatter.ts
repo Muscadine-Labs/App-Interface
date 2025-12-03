@@ -207,13 +207,48 @@ export function formatAssetAmountForInput(
   const precisionMultiplier = Math.pow(10, decimals);
   
   // Round down or nearest based on mode
+  // Use Math.floor to ensure we never exceed the original value
   const rounded = roundMode === 'down'
     ? Math.floor(value * precisionMultiplier) / precisionMultiplier
     : Math.round(value * precisionMultiplier) / precisionMultiplier;
   
-  // Format with full contract decimals precision (no trimming)
-  // This ensures parseUnits can accurately reconstruct the exact amount
-  return rounded.toFixed(decimals);
+  // Convert to string - use toFixed to ensure exact decimal places
+  // But we need to be careful: toFixed can round, so we ensure we rounded down first
+  const roundedStr = rounded.toFixed(decimals);
+  
+  // Parse back to verify it's not larger than original (safety check)
+  // This handles edge cases where floating point precision might cause issues
+  const parsed = parseFloat(roundedStr);
+  
+  if (parsed > value) {
+    // If somehow larger, subtract one unit at the smallest precision
+    const oneUnit = 1 / precisionMultiplier;
+    const corrected = Math.max(0, parsed - oneUnit);
+    return corrected.toFixed(decimals);
+  }
+  
+  return roundedStr;
+}
+
+/**
+ * Formats BigInt balance directly to input string format.
+ * This avoids floating-point precision issues by working directly with BigInt.
+ * 
+ * @param balance - The BigInt balance from the contract.
+ * @param decimals - The contract decimals (e.g., 18 for ETH, 6 for USDC, 8 for BTC).
+ * @returns Formatted string with full precision, suitable for parseUnits.
+ */
+export function formatBigIntForInput(
+  balance: bigint,
+  decimals: number
+): string {
+  if (balance === BigInt(0)) {
+    return '0';
+  }
+  
+  // Use formatUnits directly - this is the most accurate way to convert BigInt to decimal string
+  // formatUnits handles the conversion without any floating-point precision loss
+  return formatUnits(balance, decimals);
 }
 
 /**
