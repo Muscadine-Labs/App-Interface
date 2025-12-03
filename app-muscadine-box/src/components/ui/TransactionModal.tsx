@@ -2,288 +2,410 @@
 
 import React, { useState, useEffect } from 'react';
 import { useTransactionModal } from '../../contexts/TransactionModalContext';
-import { useVaultTransactions } from '../../hooks/useVaultTransactions';
+import { useVaultTransactions, type TransactionProgressStep } from '../../hooks/useVaultTransactions';
 import { useWaitForTransactionReceipt } from 'wagmi';
-import { CloseIcon, MoneyInIcon, MoneyOutIcon } from '../ui';
+import { useWallet } from '../../contexts/WalletContext';
+import { useVaultData } from '../../contexts/VaultDataContext';
+import { CloseIcon } from '../ui';
 import Image from 'next/image';
 import { getVaultLogo } from '../../types/vault';
+import { formatSmartCurrency } from '../../lib/formatter';
+
+// Helper function to check if an error is a user cancellation
+function isCancellationError(error: unknown): boolean {
+  if (!error) return false;
+  
+  const errorString = error instanceof Error ? error.message : String(error);
+  const errorLower = errorString.toLowerCase();
+
+  return (
+    errorLower.includes('user rejected') ||
+    errorLower.includes('user cancelled') ||
+    errorLower.includes('rejected') ||
+    errorLower.includes('denied') ||
+    errorLower.includes('action_cancelled') ||
+    errorLower.includes('4001') ||
+    errorLower.includes('user denied') ||
+    errorLower.includes('user rejected the request') ||
+    errorLower.includes('user rejected transaction')
+  );
+}
+
+// Helper function to convert technical errors into user-friendly messages
+function formatTransactionError(error: unknown): string {
+  if (!error) {
+    return 'Transaction failed. Please try again.';
+  }
+
+  const errorString = error instanceof Error ? error.message : String(error);
+  const errorLower = errorString.toLowerCase();
+
+  // User rejection / cancellation (should be handled separately, but keep for fallback)
+  if (isCancellationError(error)) {
+    return 'Transaction cancelled.';
+  }
+
+  // Insufficient balance
+  if (
+    errorLower.includes('insufficient') ||
+    errorLower.includes('balance too low') ||
+    errorLower.includes('execution reverted: insufficient')
+  ) {
+    return 'Insufficient balance. Please check your available funds.';
+  }
+
+  // Transaction reverted
+  if (
+    errorLower.includes('reverted') ||
+    errorLower.includes('execution reverted') ||
+    errorLower.includes('revert')
+  ) {
+    return 'Transaction was reverted. Please try again with a different amount or check your balance.';
+  }
+
+  // Network / RPC errors
+  if (
+    errorLower.includes('network') ||
+    errorLower.includes('rpc') ||
+    errorLower.includes('fetch') ||
+    errorLower.includes('timeout') ||
+    errorLower.includes('connection')
+  ) {
+    return 'Network error. Please check your connection and try again.';
+  }
+
+  // Gas / fee errors
+  if (
+    errorLower.includes('gas') ||
+    errorLower.includes('fee') ||
+    errorLower.includes('out of gas')
+  ) {
+    return 'Transaction failed due to gas estimation. Please try again.';
+  }
+
+  // Simulation state errors
+  if (
+    errorLower.includes('simulation') ||
+    errorLower.includes('bundler') ||
+    errorLower.includes('not ready')
+  ) {
+    return 'System is preparing the transaction. Please wait a moment and try again.';
+  }
+
+  // Generic transaction failure
+  if (
+    errorLower.includes('transaction failed') ||
+    errorLower.includes('failed')
+  ) {
+    return 'Transaction failed. Please try again.';
+  }
+
+  // If it's a short, readable error, use it directly
+  if (errorString.length < 100 && !errorString.includes('Error: ')) {
+    return errorString;
+  }
+
+  // Default fallback for long technical errors
+  return 'Transaction failed. Please try again.';
+}
 
 export function TransactionModal() {
   const { 
     modalState, 
     closeTransactionModal, 
-    updateTransactionStatus, 
-    setTransactionAmount, 
-    moveToNextStep 
+    updateTransactionStatus
   } = useTransactionModal();
   
-  const { withdrawAll, withdrawAssets, approveTokens, executeDeposit, checkApprovalNeeded, isLoading } = useVaultTransactions();
-  const [amount, setAmount] = useState(modalState.amount || '1.0');
+  const { 
+    executeVaultAction,
+    isLoading 
+  } = useVaultTransactions(modalState.vaultAddress || undefined);
+  
+  const { morphoHoldings } = useWallet();
+  const vaultDataContext = useVaultData();
+  
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
-  const [approvalStatus, setApprovalStatus] = useState<{
-    needsApproval: boolean;
-    currentAllowance: string;
-    requiredAmount: string;
-  } | null>(null);
+  const [assetPrice, setAssetPrice] = useState<number | null>(null);
+  const [currentStep, setCurrentStep] = useState<{ stepIndex: number; totalSteps: number; type: 'approving' | 'confirming' } | null>(null);
 
-  // Wait for transaction receipt when we have a transaction hash
+  // Reset transaction hash and step when modal opens (preview status) or closes
+  useEffect(() => {
+    if (!modalState.isOpen) {
+      // Clear hash and step when modal closes
+      setCurrentTxHash(null);
+      setCurrentStep(null);
+    } else if (modalState.status === 'preview') {
+      // Clear hash and step when modal opens in preview state (starting new transaction)
+      setCurrentTxHash(null);
+      setCurrentStep(null);
+    }
+  }, [modalState.status, modalState.isOpen]);
+
+  // Get vault data
+  const vaultData = modalState.vaultAddress ? vaultDataContext.getVaultData(modalState.vaultAddress) : null;
+
+  // Get current position
+  const currentVaultPosition = modalState.vaultAddress
+    ? morphoHoldings.positions.find(
+        pos => pos.vault.address.toLowerCase() === modalState.vaultAddress!.toLowerCase()
+      )
+    : null;
+
+  const userVaultValueUsd = currentVaultPosition ? 
+    (parseFloat(currentVaultPosition.shares) / 1e18) * currentVaultPosition.vault.state.sharePriceUsd : 0;
+
+  // Parse amount - handle string, number, or null
+  const amountStr = modalState.amount?.toString().trim() || '';
+  let amount = 0;
+  if (amountStr) {
+    const parsed = parseFloat(amountStr);
+    amount = isNaN(parsed) ? 0 : parsed;
+  }
+
+  // Calculate asset price from vault state for consistency with vault's internal pricing
+  // This ensures USD values match between amount display and balance calculations
+  // Formula: assetPrice = sharePriceUsd / (totalAssets / totalSupply)
+  let vaultAssetPrice: number | null = null;
+  
+  // Try to get from current position first (most accurate, includes user's vault state)
+  if (currentVaultPosition && vaultData?.totalAssets && currentVaultPosition.vault.state.totalSupply) {
+    const totalAssets = parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals ?? 18);
+    const totalSupply = parseFloat(currentVaultPosition.vault.state.totalSupply) / 1e18;
+    const sharePriceInAssets = totalSupply > 0 ? totalAssets / totalSupply : 0;
+    const sharePriceUsd = currentVaultPosition.vault.state.sharePriceUsd;
+    
+    if (sharePriceInAssets > 0 && sharePriceUsd > 0) {
+      vaultAssetPrice = sharePriceUsd / sharePriceInAssets;
+    }
+  }
+  
+  // Use vault's calculated asset price if available, otherwise fall back to external price API
+  // This ensures consistency: both amountUsd and userVaultValueUsd use the same pricing source
+  const effectiveAssetPrice = vaultAssetPrice || assetPrice;
+  const amountUsd = effectiveAssetPrice && amount > 0 ? amount * effectiveAssetPrice : 0;
+
+
+  // Calculate balance after transaction
+  const balanceBefore = userVaultValueUsd;
+  let balanceAfter = userVaultValueUsd;
+  if (modalState.type === 'deposit') {
+    balanceAfter = userVaultValueUsd + amountUsd;
+  } else if (modalState.type === 'withdraw' || modalState.type === 'withdrawAll') {
+    balanceAfter = Math.max(0, userVaultValueUsd - amountUsd);
+  }
+
+  // Fetch asset price
+  useEffect(() => {
+    if (!modalState.vaultSymbol) return;
+    
+    const fetchAssetPrice = async () => {
+      const vaultSymbol = modalState.vaultSymbol!.toUpperCase();
+      
+      // For stablecoins, always use exactly 1.0 (don't fetch from API)
+      if (vaultSymbol === 'USDC' || vaultSymbol === 'USDT' || vaultSymbol === 'DAI') {
+        setAssetPrice(1);
+        return;
+      }
+      
+      try {
+        const symbolMap: Record<string, string> = {
+          'cbBTC': 'BTC',
+          'CBBTC': 'BTC',
+          'CBTC': 'BTC',
+          'WETH': 'ETH',
+          'WBTC': 'BTC',
+        };
+        
+        const priceSymbol = symbolMap[vaultSymbol] || vaultSymbol;
+        
+        const response = await fetch(`/api/prices?symbols=${priceSymbol}`);
+        if (response.ok) {
+          const data = await response.json();
+          const priceKey = priceSymbol.toLowerCase();
+          const price = data[priceKey];
+          
+          if (price && typeof price === 'number' && price > 0) {
+            setAssetPrice(price);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch asset price:', error);
+        setAssetPrice(null);
+      }
+    };
+
+    fetchAssetPrice();
+  }, [modalState.vaultSymbol]);
+
+  // Wait for main transaction receipt (deposit/withdraw)
+  // Only enable when we have a hash AND status is confirming (not preview or error)
   const { data: receipt, error: receiptError } = useWaitForTransactionReceipt({
     hash: currentTxHash as `0x${string}`,
     query: {
-      enabled: !!currentTxHash && modalState.status === 'confirming',
+      enabled: !!currentTxHash && modalState.status === 'confirming' && modalState.isOpen,
     },
   });
 
-  // Update local amount when modal state changes
+  // Handle transaction receipt - only mark as success when receipt is confirmed
   useEffect(() => {
-    if (modalState.amount) {
-      setAmount(modalState.amount);
-    }
-  }, [modalState.amount]);
-
-  // Check approval status when modal opens for deposit
-  useEffect(() => {
-    if (modalState.isOpen && modalState.type === 'deposit' && modalState.vaultAddress && amount) {
-      const checkStatus = async () => {
-        try {
-          const status = await checkApprovalNeeded(modalState.vaultAddress!, amount);
-          setApprovalStatus(status);
-        } catch (error) {
-          console.error('Failed to check approval status:', error);
-        }
-      };
-      
-      checkStatus();
-    }
-  }, [modalState.isOpen, modalState.type, modalState.vaultAddress, amount, checkApprovalNeeded]);
-
-  // Handle transaction receipt
-  useEffect(() => {
-    if (receipt && modalState.status === 'confirming') {
-      console.log('Transaction receipt received:', receipt);
-      
-      // If we're in authorize step, move to deposit step
-      if (modalState.step === 'authorize' && modalState.type === 'deposit') {
-        console.log('Authorization complete, moving to deposit step');
-        moveToNextStep();
-        setCurrentTxHash(null); // Clear hash for next transaction
+    // Only process receipt when status is confirming and we have a receipt
+    if (receipt && modalState.status === 'confirming' && currentTxHash) {
+      updateTransactionStatus('success', undefined, currentTxHash);
+      setTimeout(() => {
+        closeTransactionModal();
+      }, 3000);
+    } else if (receiptError && modalState.status === 'confirming' && currentTxHash) {
+      // Check if receipt error is a cancellation
+      if (isCancellationError(receiptError)) {
+        // Keep modal open and reset to preview state
+        updateTransactionStatus('preview');
+        setCurrentTxHash(null);
+        setCurrentStep(null);
       } else {
-        // Final transaction complete
-        updateTransactionStatus('success', undefined, currentTxHash || undefined);
-        
-        // Auto-close after success
-        setTimeout(() => {
-          closeTransactionModal();
-        }, 3000);
+        updateTransactionStatus('error', formatTransactionError(receiptError));
       }
-    } else if (receiptError && modalState.status === 'confirming') {
-      console.log('Transaction receipt error:', receiptError);
-      updateTransactionStatus('error', 'Transaction failed or was reverted');
     }
-  }, [receipt, receiptError, modalState.status, currentTxHash, updateTransactionStatus, closeTransactionModal, modalState.step, modalState.type, moveToNextStep]);
+  }, [receipt, receiptError, modalState.status, currentTxHash, updateTransactionStatus, closeTransactionModal]);
 
-  // Handle wallet interaction timeout (only for very long delays)
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
-    if (modalState.status === 'depositing' && !modalState.isPageVisible) {
-      // Set a longer timeout for wallet interaction (60 seconds) - only for extreme cases
-      timeoutId = setTimeout(() => {
-        console.log('Wallet interaction timeout - transaction taking too long');
-        updateTransactionStatus('error', 'Transaction timed out. Please try again.');
-      }, 60000); // Increased to 60 seconds
-    }
-    
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [modalState.status, modalState.isPageVisible, updateTransactionStatus]);
-
-  // Handle amount input changes
-  const handleAmountChange = (value: string) => {
-    setAmount(value);
-    setTransactionAmount(value);
-  };
-
-  // Execute transaction based on type
-  const executeTransaction = async () => {
-    if (!modalState.vaultAddress) return;
+  // Execute transaction with retry logic for allowance errors
+  const handleConfirm = async () => {
+    if (!modalState.vaultAddress || !modalState.amount) return;
 
     try {
-      console.log('Starting transaction:', modalState.type);
+      updateTransactionStatus('confirming');
       
-      let txHash: string;
-      
-      switch (modalState.type) {
-        case 'deposit':
-          if (modalState.step === 'authorize') {
-            if (approvalStatus?.needsApproval) {
-              // Step 1: Approve tokens
-              updateTransactionStatus('authorizing');
-              console.log('Calling approveTokens function...');
-              txHash = await approveTokens(modalState.vaultAddress, amount);
-              console.log('Approval completed, txHash:', txHash);
-              setCurrentTxHash(txHash);
-              updateTransactionStatus('confirming', undefined, txHash);
-            } else {
-              // Show authorization complete and move to next step
-              console.log('Authorization already complete, moving to deposit step');
-              updateTransactionStatus('authorized');
-              setTimeout(() => {
-                moveToNextStep();
-              }, 1500);
-              return;
+      let retryCount = 0;
+      const maxRetries = 1;
+
+      const executeWithRetry = async (): Promise<string> => {
+        try {
+          // Progress callback to track transaction steps
+          const onProgress = (step: TransactionProgressStep) => {
+            if (step.type === 'approving') {
+              setCurrentStep({ stepIndex: step.stepIndex, totalSteps: step.totalSteps, type: 'approving' });
+              updateTransactionStatus('approving');
+            } else if (step.type === 'confirming') {
+              setCurrentStep({ stepIndex: step.stepIndex, totalSteps: step.totalSteps, type: 'confirming' });
+              updateTransactionStatus('confirming', undefined, step.txHash);
             }
+          };
+
+          if (modalState.type === 'deposit') {
+            return await executeVaultAction('deposit', modalState.vaultAddress!, modalState.amount!, onProgress);
+          } else if (modalState.type === 'withdraw') {
+            // If amount is specified, withdraw that amount, otherwise withdraw all
+            if (modalState.amount && parseFloat(modalState.amount) > 0) {
+              return await executeVaultAction('withdraw', modalState.vaultAddress!, modalState.amount, onProgress);
+            } else {
+              return await executeVaultAction('withdrawAll', modalState.vaultAddress!, undefined, onProgress);
+            }
+          } else if (modalState.type === 'withdrawAll') {
+            return await executeVaultAction('withdrawAll', modalState.vaultAddress!, undefined, onProgress);
           } else {
-            // Step 2: Execute deposit
-            updateTransactionStatus('depositing');
-            console.log('Calling executeDeposit function...');
-            txHash = await executeDeposit(modalState.vaultAddress, amount);
-            console.log('Deposit completed, txHash:', txHash);
-            setCurrentTxHash(txHash);
-            updateTransactionStatus('confirming', undefined, txHash);
+            throw new Error('Invalid transaction type');
           }
-          break;
+        } catch (err: unknown) {
+          const errorString = err instanceof Error ? err.message : String(err);
+          const errorLower = errorString.toLowerCase();
+          const isAllowanceError = errorLower.includes('allowance') || 
+                                   errorLower.includes('transfer amount exceeds');
           
-        case 'withdraw':
-          updateTransactionStatus('depositing'); // Reuse status for withdrawal
-          console.log('Calling withdrawAll function...');
-          txHash = await withdrawAll(modalState.vaultAddress);
-          console.log('Withdraw completed, txHash:', txHash);
-          setCurrentTxHash(txHash);
-          updateTransactionStatus('confirming', undefined, txHash);
-          break;
-          
-        case 'withdrawAll':
-          updateTransactionStatus('depositing'); // Reuse status for withdrawal
-          console.log('Calling withdrawAssets function...');
-          txHash = await withdrawAssets(modalState.vaultAddress, amount);
-          console.log('Withdraw completed, txHash:', txHash);
-          setCurrentTxHash(txHash);
-          updateTransactionStatus('confirming', undefined, txHash);
-          break;
-          
-        default:
-          throw new Error('Invalid transaction type');
-      }
+          // If we get an allowance error and haven't retried yet, wait and retry
+          if (isAllowanceError && retryCount < maxRetries) {
+            retryCount++;
+            // Wait a moment for simulation state to update after approval
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            return executeWithRetry();
+          }
+          throw err;
+        }
+      };
+
+      const txHash = await executeWithRetry();
+      setCurrentTxHash(txHash);
+      // Status is already updated by onProgress callback
+
     } catch (err) {
-      console.error('Transaction failed with error:', err);
-      console.error('Error details:', {
-        message: err instanceof Error ? err.message : 'Unknown error',
-        name: err instanceof Error ? err.name : 'Unknown',
-        stack: err instanceof Error ? err.stack : 'No stack trace',
-        type: typeof err,
-        constructor: err?.constructor?.name,
-        toString: err?.toString?.()
-      });
+      console.error('Transaction failed:', err);
       
-      let errorMessage = 'Transaction failed';
-      if (err instanceof Error) {
-        errorMessage = err.message;
+      // Check if this is a cancellation - handle separately
+      if (isCancellationError(err)) {
+        // Keep modal open and reset to preview state
+        updateTransactionStatus('preview');
+        setCurrentTxHash(null);
+        setCurrentStep(null);
+        return;
       }
       
+      const errorMessage = formatTransactionError(err);
       updateTransactionStatus('error', errorMessage);
     }
   };
 
-  // Handle modal close
-  const handleClose = () => {
-    if (modalState.status === 'authorizing' || modalState.status === 'depositing' || modalState.status === 'confirming') {
-      return; // Don't allow closing during transaction
-    }
-    closeTransactionModal();
-  };
-
-  // Handle backdrop click
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      handleClose();
-    }
-  };
 
   if (!modalState.isOpen) {
     return null;
   }
 
-  const getStatusIcon = () => {
-    switch (modalState.status) {
-      case 'authorizing':
-      case 'depositing':
-      case 'confirming':
-        return (
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
-        );
-      case 'authorized':
-        return (
-          <div className="w-8 h-8 rounded-full bg-[var(--success)] flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-        );
-      case 'success':
-        return (
-          <div className="w-8 h-8 rounded-full bg-[var(--success)] flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-        );
-      case 'error':
-        return (
-          <div className="w-8 h-8 rounded-full bg-[var(--danger)] flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
+  const isPreview = modalState.status === 'preview';
+  const isApproving = modalState.status === 'approving';
+  const isConfirming = modalState.status === 'confirming';
+  const isSuccess = modalState.status === 'success';
+  const isError = modalState.status === 'error';
 
-  const getStatusMessage = () => {
-    switch (modalState.status) {
-      case 'authorizing':
-        return 'Authorizing token spend...';
-      case 'authorized':
-        return 'Authorization complete!';
-      case 'depositing':
-        return modalState.type === 'deposit' ? 'Executing deposit...' : 'Executing withdrawal...';
-      case 'confirming':
-        return 'Transaction submitted, waiting for confirmation...';
-      case 'success':
-        return 'Transaction successful!';
-      case 'error':
-        return modalState.error || 'Transaction failed';
-      default:
-        return '';
-    }
-  };
-
-  const getActionButtonText = () => {
-    if (modalState.type === 'deposit') {
-      if (modalState.step === 'authorize') {
-        return approvalStatus?.needsApproval ? 'Authorize Tokens' : 'Continue';
+  // Determine steps for status bar
+  // Show steps when transaction is in progress or completed
+  const steps = (isApproving || isConfirming || isSuccess) ? (() => {
+    // If transaction is successful, show all steps as completed
+    if (isSuccess) {
+      if (currentStep && currentStep.totalSteps > 1) {
+        return [
+          { label: 'Approve', completed: true, active: false },
+          { label: 'Confirm', completed: true, active: false }
+        ];
       } else {
-        return 'Deposit';
+        return [
+          { label: 'Confirm', completed: true, active: false }
+        ];
       }
     }
     
-    switch (modalState.type) {
-      case 'withdraw':
-      case 'withdrawAll':
-        return 'Withdraw';
-      default:
-        return 'Confirm';
+    // If we have currentStep info, use it to determine which steps to show
+    if (currentStep) {
+      // Check if there's an approval step (totalSteps > 1 means there's an approval)
+      const hasApprovalStep = currentStep.totalSteps > 1;
+      
+      if (hasApprovalStep) {
+        return [
+          { 
+            label: 'Approve', 
+            completed: currentStep.stepIndex > 0 || currentStep.type === 'confirming', 
+            active: currentStep.type === 'approving' 
+          },
+          { 
+            label: 'Confirm', 
+            completed: false, 
+            active: currentStep.type === 'confirming' 
+          }
+        ];
+      } else {
+        // Only confirmation step
+        return [
+          { 
+            label: 'Confirm', 
+            completed: false, 
+            active: true 
+          }
+        ];
+      }
+    } else {
+      // Fallback: show both steps if we don't have step info yet
+      return [
+        { label: 'Approve', completed: false, active: isApproving },
+        { label: 'Confirm', completed: false, active: isConfirming }
+      ];
     }
-  };
-
-  const isTransactionInProgress = modalState.status === 'authorizing' || modalState.status === 'depositing' || modalState.status === 'confirming';
-  const canClose = !isTransactionInProgress;
-  const isWalletInteraction = !modalState.isPageVisible && isTransactionInProgress;
+  })() : [];
 
   return (
     <div 
@@ -293,54 +415,19 @@ export function TransactionModal() {
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
       }}
-      onClick={handleBackdropClick}
     >
       <div 
         className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] w-full max-w-md mx-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Wallet Interaction Indicator */}
-        {isWalletInteraction && (
-          <div className="bg-[var(--warning-subtle)] border-b border-[var(--warning)] p-3">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-[var(--warning)] rounded-full animate-pulse"></div>
-              <p className="text-sm text-[var(--warning)] font-medium">
-                Wallet interaction in progress. Please complete the transaction in your wallet.
-              </p>
-            </div>
-            <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-              You can navigate away from this page - the transaction will continue in your wallet.
-            </p>
-          </div>
-        )}
-
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-[var(--border-subtle)]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden">
-              <Image 
-                src={getVaultLogo(modalState.vaultSymbol || '')} 
-                alt={`${modalState.vaultSymbol} logo`}
-                width={40}
-                height={40}
-                className={`w-full h-full object-contain ${
-                  modalState.vaultSymbol === 'WETH' ? 'scale-75' : ''
-                }`}
-              />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-[var(--foreground)]">
-                {modalState.type === 'deposit' ? 'Deposit' : 'Withdraw'}
-              </h2>
-              <p className="text-sm text-[var(--foreground-secondary)]">
-                {modalState.vaultName}
-              </p>
-            </div>
-          </div>
-          
-          {canClose && (
+          <h2 className="text-xl font-semibold text-[var(--foreground)]">
+            {modalState.status === 'preview' ? 'Review' : 'Confirm'}
+          </h2>
+          {!isApproving && !isConfirming && (
             <button
-              onClick={handleClose}
+              onClick={closeTransactionModal}
               className="w-8 h-8 rounded-full bg-[var(--surface)] hover:bg-[var(--surface-hover)] flex items-center justify-center transition-colors"
               aria-label="Close"
             >
@@ -350,111 +437,277 @@ export function TransactionModal() {
         </div>
 
         {/* Content */}
-        <div className="p-6">
-          {/* Status Display */}
-          {(modalState.status !== 'idle') && (
-            <div className="flex items-center justify-center gap-3 mb-6 p-4 bg-[var(--surface)] rounded-lg">
-              {getStatusIcon()}
-              <p className="text-sm font-medium text-[var(--foreground)]">
-                {getStatusMessage()}
-              </p>
-            </div>
+        <div className="p-6 space-y-6">
+          {isError && (
+            <>
+              <div className="flex items-center gap-3 p-4 bg-[var(--danger-subtle)] rounded-lg border border-[var(--danger)]">
+                <div className="w-8 h-8 rounded-full bg-[var(--danger)] flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-[var(--foreground)]">
+                  {modalState.error || 'Transaction failed'}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  updateTransactionStatus('preview');
+                  setCurrentTxHash(null);
+                  setCurrentStep(null);
+                }}
+                className="w-full px-4 py-3 bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--foreground)] font-medium rounded-lg transition-colors text-sm"
+              >
+                Try Again
+              </button>
+            </>
           )}
 
-          {/* Amount Input (only show when not in progress) */}
-          {modalState.status === 'idle' && (
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-[var(--foreground-secondary)] mb-2">
-                Amount
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => handleAmountChange(e.target.value)}
-                  placeholder="0.0"
-                  className="w-full px-4 py-3 pr-16 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg text-[var(--foreground)] placeholder-[var(--foreground-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
-                  style={{
-                    WebkitAppearance: 'none',
-                    MozAppearance: 'textfield'
-                  }}
-                  step="0.000001"
-                  min="0"
-                />
-                <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-sm text-[var(--foreground-secondary)]">
-                  {modalState.vaultSymbol}
+          {/* Transaction Info - Show in preview, during transaction execution, and on success */}
+          {(modalState.status === 'preview' || isApproving || isConfirming || isSuccess || isError) && (
+            <>
+              {/* Vault Info */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden">
+                  <Image 
+                    src={getVaultLogo(modalState.vaultSymbol || '')} 
+                    alt={`${modalState.vaultSymbol} logo`}
+                    width={40}
+                    height={40}
+                    className={`w-full h-full object-contain ${
+                      modalState.vaultSymbol === 'WETH' ? 'scale-75' : ''
+                    }`}
+                  />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                    {modalState.vaultName}
+                  </h3>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Transaction Hash Display */}
-          {currentTxHash && (
-            <div className="mb-6 p-4 bg-[var(--surface)] rounded-lg">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Transaction Hash</p>
-              <p className="text-sm font-figtree text-[var(--foreground)] break-all">
-                {currentTxHash}
-              </p>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex gap-3">
-            {canClose && (
-              <button
-                onClick={handleClose}
-                className="flex-1 px-4 py-3 bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--foreground)] font-medium rounded-lg transition-colors border border-[var(--border-subtle)]"
-              >
-                {modalState.status === 'error' ? 'Close' : 'Cancel'}
-              </button>
-            )}
-            
-            {modalState.status === 'idle' && (
-              <button
-                onClick={executeTransaction}
-                disabled={!amount || parseFloat(amount) <= 0 || isLoading}
-                className={`flex-1 px-4 py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                  modalState.type === 'deposit'
-                    ? 'bg-[var(--success)] hover:bg-[var(--success-hover)] text-white'
-                    : 'bg-[var(--warning)] hover:bg-[var(--warning-hover)] text-white'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isLoading ? (
-                  'Processing...'
-                ) : (
-                  <>
-                    
-                    {getActionButtonText()}
-                  </>
-                )}
-              </button>
-            )}
-
-            {modalState.status === 'error' && (
-              <button
-                onClick={executeTransaction}
-                disabled={isLoading}
-                className={`flex-1 px-4 py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                  modalState.type === 'deposit'
-                    ? 'bg-[var(--success)] hover:bg-[var(--success-hover)] text-white'
-                    : 'bg-[var(--warning)] hover:bg-[var(--warning-hover)] text-white'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isLoading ? (
-                  'Retrying...'
-                ) : (
-                  <>
-                    {modalState.type === 'deposit' ? (
-                      <MoneyInIcon size="sm" />
-                    ) : (
-                      <MoneyOutIcon size="sm" />
+              {/* Transaction Type and Amount */}
+              <div className="space-y-2">
+                <p className="text-sm text-[var(--foreground-secondary)]">
+                  {modalState.type === 'deposit' ? 'Deposit' : 'Withdraw'}
+                </p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-semibold text-[var(--foreground)]">
+                      {modalState.amount || '0'} {modalState.vaultSymbol}
+                    </span>
+                    {amountUsd > 0 && (
+                      <span className="text-base text-[var(--foreground-secondary)] bg-[var(--surface)] px-2 py-1 rounded">
+                        {formatSmartCurrency(amountUsd)}
+                      </span>
                     )}
-                    Retry
-                  </>
-                )}
-              </button>
-            )}
-          </div>
+                  </div>
+                  {modalState.vaultSymbol && (
+                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center overflow-hidden">
+                      <Image
+                        src={getVaultLogo(modalState.vaultSymbol)}
+                        alt={`${modalState.vaultSymbol} logo`}
+                        width={32}
+                        height={32}
+                        className={`w-full h-full object-contain ${
+                          modalState.vaultSymbol === 'WETH' ? 'scale-75' : ''
+                        }`}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Balance Change */}
+              <div className="bg-[var(--surface)] rounded-lg p-4 space-y-2">
+                <p className="text-sm text-[var(--foreground-secondary)]">
+                  {modalState.type === 'deposit' ? 'Deposit' : 'Withdraw'} ({modalState.vaultSymbol})
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-semibold text-[var(--foreground)]">
+                    {formatSmartCurrency(balanceBefore)}
+                  </span>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="w-4 h-4 text-[var(--foreground-secondary)]"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                  <span className="text-lg font-semibold text-[var(--foreground)]">
+                    {formatSmartCurrency(balanceAfter)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Warning for WETH deposits */}
+              {modalState.type === 'deposit' && modalState.vaultSymbol?.toUpperCase() === 'WETH' && (
+                <div className="flex items-start gap-3 p-4 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
+                  <div className="w-5 h-5 rounded-full bg-[var(--warning)] flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-[var(--foreground)]">
+                    <span className="font-medium">Warning:</span> Depositing all your available ETH may leave insufficient funds for gas fees, which could prevent you from executing future transactions.
+                  </p>
+                </div>
+              )}
+
+              {/* Disclaimer - Only show in preview */}
+              {modalState.status === 'preview' && (
+                <div className="pt-4 border-t border-[var(--border-subtle)]">
+                  <p className="text-xs text-[var(--foreground-secondary)] leading-relaxed">
+                    By confirming this transaction, you agree to the{' '}
+                    <a 
+                      href="#"
+                      className="text-[var(--primary)] hover:underline"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Open terms of use
+                      }}
+                    >
+                      Terms of Use
+                    </a>
+                    {' '}and the services provisions relating to the Morpho Vault.
+                  </p>
+                </div>
+              )}
+
+              {/* Execute Bundle - Show during transaction execution */}
+              {(isApproving || isConfirming) && currentTxHash && (
+                <div className="pt-4 border-t border-[var(--border-subtle)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--foreground-secondary)]">Execute your bundle</span>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`https://basescan.org/tx/${currentTxHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-mono text-[var(--foreground-secondary)] bg-[var(--surface)] px-2 py-1 rounded hover:text-[var(--foreground)] transition-colors"
+                      >
+                        {`${currentTxHash.slice(0, 6)}...${currentTxHash.slice(-4)}`}
+                      </a>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="w-4 h-4 text-[var(--foreground-secondary)]"
+                      >
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Transaction Info */}
+              {isError && currentStep && (
+                <div className="pt-4 border-t border-[var(--danger)]">
+                  <p className="text-sm text-[var(--danger)]">
+                    Transaction {currentStep.stepIndex + 1}/{currentStep.totalSteps} - An error occurred
+                  </p>
+                </div>
+              )}
+
+              {/* Confirm Button - Only show in preview */}
+              {modalState.status === 'preview' && (
+                <button
+                  onClick={handleConfirm}
+                  disabled={isLoading || !modalState.amount || amount <= 0}
+                  className="w-full px-4 py-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? 'Processing...' : 'Confirm'}
+                </button>
+              )}
+
+              {/* Status Bar - Replace confirm button during approving/confirming/success */}
+              {(isApproving || isConfirming || isSuccess) && steps.length > 0 && (
+                <div className="space-y-3">
+                  {/* Step Labels */}
+                  <div className="flex items-center justify-between">
+                    {steps.map((step, index) => (
+                      <div key={index} className="flex flex-col items-center flex-1">
+                        <span className={`text-xs font-medium ${
+                          step.active || step.completed
+                            ? 'text-[var(--foreground)]'
+                            : 'text-[var(--foreground-secondary)]'
+                        }`}>
+                          {step.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Continuous Progress Bar */}
+                  <div className="relative h-2 bg-[var(--border-subtle)] rounded-full overflow-hidden">
+                    {/* Completed segments */}
+                    {steps.map((step, index) => {
+                      const segmentWidth = 100 / steps.length;
+                      const isSegmentCompleted = step.completed;
+                      const isSegmentActive = step.active && !step.completed;
+                      
+                      return (
+                        <div
+                          key={index}
+                          className="absolute h-full transition-all duration-300"
+                          style={{
+                            left: `${index * segmentWidth}%`,
+                            width: `${segmentWidth}%`,
+                            backgroundColor: isSegmentCompleted 
+                              ? 'var(--success)' 
+                              : isSegmentActive 
+                              ? 'var(--primary)' 
+                              : 'transparent',
+                          }}
+                        >
+                          {/* Break line between segments (except for last segment) */}
+                          {index < steps.length - 1 && (
+                            <div 
+                              className="absolute right-0 top-0 w-px h-full bg-[var(--background)] z-10"
+                              style={{ marginRight: '-1px' }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Active segment animation - only show when not in success state */}
+                    {!isSuccess && steps.some(step => step.active && !step.completed) && (
+                      <div 
+                        className="absolute h-full bg-[var(--primary)] opacity-50 animate-pulse"
+                        style={{
+                          width: `${(steps.findIndex(step => step.active && !step.completed) + 1) * (100 / steps.length)}%`,
+                        }}
+                      />
+                    )}
+                    
+                    {/* Success state - show full green bar */}
+                    {isSuccess && steps.every(step => step.completed) && (
+                      <div 
+                        className="absolute h-full bg-[var(--success)] transition-all duration-300"
+                        style={{
+                          width: '100%',
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

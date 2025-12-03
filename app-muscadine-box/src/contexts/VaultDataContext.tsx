@@ -5,11 +5,14 @@ import { Vault, MorphoVaultData } from '../types/vault';
 
 interface AllocationData {
   market?: {
+    uniqueKey?: string; // Market unique key (market ID) needed for simulation
     loanAsset?: {
+      address?: string;
       symbol?: string;
       name?: string;
     };
     collateralAsset?: {
+      address?: string;
       symbol?: string;
       name?: string;
     };
@@ -41,6 +44,7 @@ interface VaultDataContextType {
   vaultData: VaultDataState;
   fetchVaultData: (address: string, chainId?: number) => Promise<void>;
   getVaultData: (address: string) => MorphoVaultData | null;
+  getVaultMarketIds: (address: string) => `0x${string}`[]; // Get market uniqueKeys for simulation
   isLoading: (address: string) => boolean;
   hasError: (address: string) => boolean;
   isStaleData: (address: string) => boolean;
@@ -143,12 +147,44 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           curatorAddress: curatorAddress,
           guardianAddress: vaultInfo.state?.guardian,
           oracleAddress: vaultInfo.state?.allocation?.[0]?.market?.oracleAddress,
+          ownerAddress: vaultInfo.state?.owner || '',
+          allocators: vaultInfo.allocators?.map((alloc: { address: string }) => alloc.address) || [],
           performanceFee: (vaultInfo.state?.fee || 0) * 100,
           managementFee: 0,
           description: vaultInfo.metadata?.description || 'Morpho vault',
           allocatedMarkets: vaultInfo.state?.allocation?.map((alloc: AllocationData) => 
             `${alloc.market?.loanAsset?.symbol || alloc.market?.loanAsset?.name}/${alloc.market?.collateralAsset?.symbol || alloc.market?.collateralAsset?.name}`
           ) || [],
+          // Extract unique market assets with their addresses for logo fetching
+          marketAssets: (() => {
+            const assetMap = new Map<string, { symbol: string; address?: string }>();
+            
+            vaultInfo.state?.allocation?.forEach((alloc: AllocationData) => {
+              // Add loan asset
+              if (alloc.market?.loanAsset?.symbol) {
+                const symbol = alloc.market.loanAsset.symbol;
+                if (!assetMap.has(symbol)) {
+                  assetMap.set(symbol, {
+                    symbol,
+                    address: alloc.market.loanAsset.address,
+                  });
+                }
+              }
+              
+              // Add collateral asset
+              if (alloc.market?.collateralAsset?.symbol) {
+                const symbol = alloc.market.collateralAsset.symbol;
+                if (!assetMap.has(symbol)) {
+                  assetMap.set(symbol, {
+                    symbol,
+                    address: alloc.market.collateralAsset.address,
+                  });
+                }
+              }
+            });
+            
+            return Array.from(assetMap.values());
+          })(),
           timelockDuration: vaultInfo.state?.timelock || 0,
           lastUpdated: new Date().toISOString(),
         };
@@ -209,6 +245,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       timelockDuration: basic.timelockDuration || 0,
       guardianAddress: basic.guardianAddress || '',
       oracleAddress: basic.oracleAddress || '',
+      ownerAddress: basic.ownerAddress || '',
+      allocators: basic.allocators || [],
       allocatedMarkets: basic.allocatedMarkets || [],
       status: basic.status || 'active',
       curator: basic.curator || 'Morpho Labs',
@@ -243,10 +281,24 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     await Promise.allSettled(promises);
   }, [fetchCompleteVaultData]);
 
+  // Extract market uniqueKeys from vault allocation data for simulation state
+  const getVaultMarketIds = useCallback((address: string): `0x${string}`[] => {
+    const data = vaultData[address];
+    if (!data?.allocation || !Array.isArray(data.allocation)) {
+      return [];
+    }
+    
+    return data.allocation
+      .map((alloc: AllocationData) => alloc?.market?.uniqueKey)
+      .filter((uniqueKey: string | undefined): uniqueKey is string => !!uniqueKey)
+      .filter((key: string) => key.startsWith('0x')) as `0x${string}`[];
+  }, [vaultData]);
+
   const value: VaultDataContextType = {
     vaultData,
     fetchVaultData: fetchCompleteVaultData,
     getVaultData,
+    getVaultMarketIds,
     isLoading,
     hasError,
     isStaleData,

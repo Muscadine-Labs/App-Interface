@@ -3,36 +3,54 @@
 import React, { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
 import { NavLink } from "./NavLink";
+import { VaultsDropdown } from "./VaultsDropdown";
 import { navigationItems, NavItem } from "@/config/navigation";
 import { ConnectButton } from "../features/wallet";
 import { useTab } from "@/contexts/TabContext";
+import { Icon } from "../ui/Icon";
 
-export function NavBar() {
+interface NavBarProps {
+    isRightSidebarCollapsed?: boolean;
+    onToggleSidebar?: () => void;
+}
+
+export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps) {
     const { activeTab, setActiveTab } = useTab();
+    const router = useRouter();
+    const pathname = usePathname();
 
     const isActive = useCallback((item: NavItem): boolean => {
-        // All items are now internal tabs
+        // Vaults dropdown is active if we're on a vault page
+        if (item.id === 'vaults') {
+            return pathname?.startsWith('/vaults/') || false;
+        }
+        // Fallback to activeTab for other items
         return item.id === activeTab;
-    }, [activeTab]);
+    }, [activeTab, pathname]);
 
     const handleNavClick = useCallback((item: NavItem) => {
-        setActiveTab(item.id as 'dashboard' | 'learn');
+        // Skip handling for vaults dropdown (it handles its own navigation)
+        if (item.id === 'vaults') {
+            return;
+        }
+        // Set the active tab
+        setActiveTab(item.id as 'dashboard');
     }, [setActiveTab]);
 
     return (
         <div 
             id="navbar" 
-            className="flex flex-row fixed top-0 left-0 w-full bg-[var(--background-muted)] py-4 transition-all duration-300 border-b border-[var(--border)] h-[var(--navbar-height)] px-4"
+            className="flex flex-row fixed top-0 left-0 w-full bg-[var(--background-muted)] py-4 transition-all duration-300 border-b border-[var(--border)] h-[var(--navbar-height)] px-4 z-50"
         >
             {/* Header with ConnectButton */}
             <div className="flex items-center justify-between w-full">
                 <div className="flex items-center gap-4">
                     {/* Logo/Brand with Link */}
                     <Link 
-                        href="https://muscadine.io" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
+                        href="/" 
+                        onClick={() => setActiveTab('dashboard')}
                         className="flex items-center gap-3 "
                     >
                         <Image
@@ -51,19 +69,54 @@ export function NavBar() {
                     <nav className="flex items-center gap-2" role="navigation" aria-label="Main navigation">
                         {navigationItems.map((item) => (
                             <div key={item.id} onClick={(e) => e.stopPropagation()}>
-                                <NavLink 
-                                    item={item}
-                                    isActive={isActive(item)}
-                                    onClick={() => handleNavClick(item)}
-                                />
+                                {item.id === 'vaults' ? (
+                                    <VaultsDropdown isActive={isActive(item)} />
+                                ) : (
+                                    <NavLink 
+                                        item={item}
+                                        isActive={isActive(item)}
+                                        onClick={() => handleNavClick(item)}
+                                    />
+                                )}
                             </div>
                         ))}
+                        {/* External Links */}
+                        <a
+                            href="https://docs.muscadine.io"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-md gap-1.5 hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)] text-[var(--foreground)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border)]"
+                        >
+                            Docs
+                        </a>
+                        <a
+                            href="https://muscadine.io"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-md gap-1.5 hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)] text-[var(--foreground)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border)]"
+                        >
+                            Muscadine.io
+                        </a>
                     </nav>
                 </div>
 
-                {/* Connect Button */}
-                <div className=" justify-end" onClick={(e) => e.stopPropagation()}>
+                {/* Right side: Connect Button and Sidebar Toggle */}
+                <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                     <ConnectButton />
+                    {onToggleSidebar && (
+                        <button
+                            onClick={onToggleSidebar}
+                            className="w-12 h-8 hover:bg-[var(--surface-hover)] rounded transition-colors flex items-center justify-center group"
+                            aria-label={isRightSidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
+                        >
+                            <Icon 
+                                name="sidebar"
+                                size="lg" 
+                                color="secondary"
+                                className="transition-all duration-200"
+                            />
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

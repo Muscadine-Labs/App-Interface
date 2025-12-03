@@ -5,11 +5,11 @@ import { useEffect } from "react";
 import { useElementTracker } from "../../../hooks/useElementTracker";
 
 interface VaultListProps {
-    onVaultSelect: (vault: Vault | null) => void;
+    onVaultSelect?: (vault: Vault | null) => void;
     selectedVaultAddress?: string;
 }
 
-export default function VaultList({ onVaultSelect, selectedVaultAddress }: VaultListProps) {
+export default function VaultList({ onVaultSelect, selectedVaultAddress }: VaultListProps = {}) {
     const { registerElement, unregisterElement } = useElementTracker({ component: 'VaultList' });
     const vaults: Vault[] = Object.values(VAULTS).map((vault) => ({
         address: vault.address,
@@ -29,14 +29,15 @@ export default function VaultList({ onVaultSelect, selectedVaultAddress }: Vault
         };
     }, [registerElement, unregisterElement]);
 
-    const handleVaultClick = (vault: Vault) => {
-        // If the clicked vault is already selected, deselect it
+    // Legacy support: if onVaultSelect is provided, use it
+    // Otherwise, VaultListCard will handle navigation directly
+    const handleVaultClick = onVaultSelect ? (vault: Vault) => {
         if (vault.address === selectedVaultAddress) {
             onVaultSelect(null);
         } else {
             onVaultSelect(vault);
         }
-    };
+    } : undefined;
 
     return (
         <div className="flex rounded-lg w-full justify-center items-center">
@@ -49,7 +50,7 @@ export default function VaultList({ onVaultSelect, selectedVaultAddress }: Vault
                                 <VaultListCard 
                                     vault={vault} 
                                     onClick={handleVaultClick}
-                                    isSelected={vault.address === selectedVaultAddress}
+                                    isSelected={selectedVaultAddress ? vault.address === selectedVaultAddress : undefined}
                                 />
                                 {index < vaults.length - 1 && (
                                     <div className="w-full h-px bg-[var(--border)]"></div>

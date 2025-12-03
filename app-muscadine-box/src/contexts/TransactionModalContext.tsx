@@ -5,13 +5,20 @@ import React, { createContext, useContext, useState, useCallback, ReactNode, use
 export type TransactionType = 'deposit' | 'withdraw' | 'withdrawAll';
 
 export type TransactionStatus = 
-  | 'idle' 
-  | 'authorizing' 
-  | 'authorized' 
-  | 'depositing' 
+  | 'preview' 
+  | 'signing'
+  | 'approving'
   | 'confirming' 
   | 'success' 
-  | 'error';
+  | 'error' 
+  | 'cancelled';
+
+export interface TransactionStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'active' | 'completed';
+  contractAddress?: string;
+}
 
 export interface TransactionModalState {
   isOpen: boolean;
@@ -23,8 +30,9 @@ export interface TransactionModalState {
   status: TransactionStatus;
   error: string | null;
   txHash: string | null;
-  step: 'authorize' | 'deposit' | null;
   isPageVisible: boolean;
+  steps: TransactionStep[];
+  currentStepIndex: number;
 }
 
 interface TransactionModalContextType {
@@ -38,8 +46,6 @@ interface TransactionModalContextType {
   ) => void;
   closeTransactionModal: () => void;
   updateTransactionStatus: (status: TransactionStatus, error?: string, txHash?: string) => void;
-  setTransactionAmount: (amount: string) => void;
-  moveToNextStep: () => void;
 }
 
 const TransactionModalContext = createContext<TransactionModalContextType | undefined>(undefined);
@@ -51,11 +57,12 @@ const initialModalState: TransactionModalState = {
   vaultName: null,
   vaultSymbol: null,
   amount: null,
-  status: 'idle',
+  status: 'preview',
   error: null,
   txHash: null,
-  step: null,
   isPageVisible: true,
+  steps: [],
+  currentStepIndex: 0,
 };
 
 export function TransactionModalProvider({ children }: { children: ReactNode }) {
@@ -96,11 +103,12 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
       vaultName,
       vaultSymbol,
       amount: amount || null,
-      status: 'idle',
+      status: 'preview',
       error: null,
       txHash: null,
-      step: type === 'deposit' ? 'authorize' : null,
       isPageVisible,
+      steps: [],
+      currentStepIndex: 0,
     });
   }, [isPageVisible]);
 
@@ -121,27 +129,6 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
     }));
   }, []);
 
-  const setTransactionAmount = useCallback((amount: string) => {
-    setModalState(prev => ({
-      ...prev,
-      amount,
-    }));
-  }, []);
-
-  const moveToNextStep = useCallback(() => {
-    setModalState(prev => {
-      if (prev.step === 'authorize') {
-        return {
-          ...prev,
-          step: 'deposit',
-          status: 'idle',
-          error: null,
-          txHash: null,
-        };
-      }
-      return prev;
-    });
-  }, []);
 
   return (
     <TransactionModalContext.Provider value={{
@@ -149,8 +136,6 @@ export function TransactionModalProvider({ children }: { children: ReactNode }) 
       openTransactionModal,
       closeTransactionModal,
       updateTransactionStatus,
-      setTransactionAmount,
-      moveToNextStep,
     }}>
       {children}
     </TransactionModalContext.Provider>

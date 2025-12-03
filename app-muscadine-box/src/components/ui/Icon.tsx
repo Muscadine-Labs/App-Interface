@@ -8,6 +8,8 @@ export type IconName =
   | 'close'
   | 'chevron-down'
   | 'chevron-up'
+  | 'chevron-left'
+  | 'chevron-right'
   | 'info'
   | 'check-circle'
   | 'x-circle'
@@ -17,7 +19,10 @@ export type IconName =
   | 'book'
   | 'loading-spinner'
   | 'money-in'
-  | 'money-out';
+  | 'money-out'
+  | 'panel-right'
+  | 'sidebar'
+  | 'glasses';
 
 export interface IconProps {
   name: IconName;
@@ -39,6 +44,8 @@ const iconPaths: Record<IconName, string | string[]> = {
   close: 'M18 6L6 18M6 6L18 18',
   'chevron-down': 'M6 9L12 15L18 9',
   'chevron-up': 'M18 15L12 9L6 15',
+  'chevron-left': 'M15 18L9 12L15 6',
+  'chevron-right': 'M9 18L15 12L9 6',
   info: 'M12 16V12M12 8H12.01',
   'check-circle': 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z',
   'x-circle': 'M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z',
@@ -60,6 +67,21 @@ const iconPaths: Record<IconName, string | string[]> = {
     'M22 12C22 17.52 17.52 22 12 22C6.48 22 2 17.52 2 12C2 6.48 6.48 2 12 2',
     'M22 6V2H18',
     'M17 7L22 2'
+  ],
+  'panel-right': [
+    'M9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5',
+    'M15 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5',
+    'M9 9h6',
+    'M9 15h6',
+  ],
+  'sidebar': [
+    'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+    'M16.5 4v16',
+  ],
+  'glasses': [
+    'M6 12a4 4 0 1 0 8 0',
+    'M18 12a4 4 0 1 0-8 0',
+    'M10 12h4',
   ],
 };
 

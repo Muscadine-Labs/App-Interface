@@ -1,0 +1,209 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { findVaultByAddress } from '@/lib/vault-utils';
+import { Vault } from '@/types/vault';
+import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
+import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
+import { VAULTS } from '@/lib/vaults';
+import { useElementTracker } from '@/hooks/useElementTracker';
+import VaultHero from '@/components/features/vault/VaultHero';
+import VaultOverview from '@/components/features/vault/VaultOverview';
+import VaultActionCard from '@/components/features/vault/VaultActionCard';
+import VaultTabs from '@/components/features/vault/VaultTabs';
+import VaultPosition from '@/components/features/vault/VaultPosition';
+import VaultHistory from '@/components/features/vault/VaultHistory';
+
+export default function VaultPage() {
+  const params = useParams();
+  const router = useRouter();
+  const address = (params?.address as string) || '';
+  const [activeTab, setActiveTab] = useState<string>('overview');
+
+  // Redirect safety tab to overview if somehow accessed
+  useEffect(() => {
+    if (activeTab === 'safety') {
+      setActiveTab('overview');
+    }
+  }, [activeTab]);
+  const [tabContentHeight, setTabContentHeight] = useState<string>('0px');
+  const heroRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Element tracking for learning system
+  const { registerElement, unregisterElement } = useElementTracker({ component: 'VaultPage' });
+  const registeredAddressRef = useRef<string | null>(null);
+
+  // Find vault by address
+  const vault = findVaultByAddress(address);
+
+  // Fetch vault data
+  const { vaultData, isLoading, hasError, refetch } = useVaultDataFetch(vault);
+
+  // Register vault-page element when vault is loaded (only once per vault address)
+  useEffect(() => {
+    const currentAddress = vault?.address;
+    
+    // Register if we have a vault address and haven't registered for this address yet
+    if (currentAddress && registeredAddressRef.current !== currentAddress) {
+      // Unregister previous if exists
+      if (registeredAddressRef.current) {
+        unregisterElement('vault-page');
+      }
+      // Register for current address
+      registerElement('vault-page', { type: 'general' });
+      registeredAddressRef.current = currentAddress;
+    }
+    
+    return () => {
+      // Only cleanup if we're actually unmounting (address is still the same)
+      if (registeredAddressRef.current === currentAddress) {
+        unregisterElement('vault-page');
+        registeredAddressRef.current = null;
+      }
+    };
+  }, [vault?.address, registerElement, unregisterElement]);
+
+  // Preload all vault data
+  const vaults: Vault[] = Object.values(VAULTS).map((v) => ({
+    address: v.address,
+    name: v.name,
+    symbol: v.symbol,
+    chainId: v.chainId,
+  }));
+  useVaultListPreloader(vaults);
+
+  // Calculate exact height for tab content area
+  useEffect(() => {
+    const calculateHeight = () => {
+      if (!heroRef.current || !tabsRef.current || !containerRef.current) return;
+
+      const navbarHeight = 72; // var(--navbar-height)
+      const containerPadding = 48; // p-6 = 24px top + 24px bottom
+      const sectionGaps = 24; // mb-6 = 24px
+      const tabContentMargin = 0; // No margin needed since tabs have mb-6
+      
+      const heroHeight = heroRef.current.offsetHeight;
+      const tabsHeight = tabsRef.current.offsetHeight;
+      
+      const availableHeight = window.innerHeight - navbarHeight - containerPadding - sectionGaps;
+      const fixedHeights = heroHeight + tabsHeight + tabContentMargin;
+      const calculatedHeight = availableHeight - fixedHeights;
+      
+      setTabContentHeight(`${Math.max(400, calculatedHeight)}px`);
+    };
+
+    // Calculate on mount and when tab changes
+    calculateHeight();
+    
+    // Recalculate on window resize
+    window.addEventListener('resize', calculateHeight);
+    const resizeObserver = new ResizeObserver(calculateHeight);
+    
+    if (heroRef.current) resizeObserver.observe(heroRef.current);
+    if (tabsRef.current) resizeObserver.observe(tabsRef.current);
+    
+    return () => {
+      window.removeEventListener('resize', calculateHeight);
+      resizeObserver.disconnect();
+    };
+  }, [activeTab, vaultData]);
+
+  // Redirect to dashboard if vault not found
+  useEffect(() => {
+    if (!vault && address) {
+      // Small delay to avoid flash of content
+      const timer = setTimeout(() => {
+        router.push('/');
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [vault, address, router]);
+
+  // Show loading state while redirecting or loading
+  if (!vault || (isLoading && !vaultData)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
+        <p className="text-[var(--foreground-muted)] text-sm mt-2">
+          {!vault ? 'Vault not found. Redirecting...' : 'Loading vault data...'}
+        </p>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (hasError && !vaultData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
+        <p className="text-[var(--danger)] text-sm mb-4">
+          Failed to load vault data
+        </p>
+        <button
+          onClick={refetch}
+          className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  // Show no data state
+  if (!vaultData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
+        <p className="text-[var(--foreground-muted)] text-sm">
+          No vault data available
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      ref={containerRef}
+      className="w-full bg-[var(--background)] flex flex-col overflow-hidden p-8" 
+      style={{ height: 'calc(100vh - var(--navbar-height))' }}
+    >
+      {/* Hero Section */}
+      <div ref={heroRef} className="flex-shrink-0 mb-6">
+        <VaultHero vaultData={vaultData} />
+      </div>
+
+      {/* Main Content */}
+      <div className="flex flex-col w-full mx-auto flex-1 min-h-0">
+        {/* Tab content & interaction card */}
+        <div className="flex gap-6 flex-1 min-h-0">
+            {/* Left Column - Tab Content */}
+            <div className="flex-1 flex flex-col min-h-0">
+                <div ref={tabsRef} className="flex-shrink-0">
+                  <VaultTabs
+                      activeTab={activeTab}
+                      onTabChange={setActiveTab}
+                  />
+                </div>
+
+                {/* Tab Content - Scrollable */}
+                <div 
+                  className="overflow-y-auto pr-2 pl-6 tab-content-scroll"
+                  style={{ height: tabContentHeight }}
+                >
+                    {activeTab === 'overview' && <VaultOverview vaultData={vaultData} />}
+                    {activeTab === 'position' && <VaultPosition vaultData={vaultData} />}
+                    {activeTab === 'history' && <VaultHistory vaultData={vaultData} />}
+                </div>
+            </div>
+
+            {/* Right Column - Action Card (Fixed Width) */}
+            <div className="w-80 flex-shrink-0 h-fit">
+                <VaultActionCard vaultData={vaultData} />
+            </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}

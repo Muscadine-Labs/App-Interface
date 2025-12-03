@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { Vault } from '../types/vault';
 
-type TabType = 'dashboard' | 'learn';
+type TabType = 'dashboard';
 
 interface TabContextType {
   activeTab: TabType;

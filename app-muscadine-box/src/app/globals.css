@@ -9,57 +9,69 @@
   display: none;  /* Safari and Chrome */
 }
 
+/* Custom scrollbar styling for tab content */
+.tab-content-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+.tab-content-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tab-content-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tab-content-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-subtle);
+  border-radius: 4px;
+}
+
+.tab-content-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border);
+}
+
 :root {
   color-scheme: light dark;
 
-  /* Font Families */
-  --font-figtree: 'Figtree', sans-serif;
-  --font-funnel-display: 'Funnel Display', sans-serif;
-  --font-outfit: 'Outfit', sans-serif;
-  --font-tinos: 'Tinos', serif;
+  --background: #fafafa;         /* Softer than pure white */
+  --surface: #ffffff;            /* Cards */
+  --surface-elevated: #f9fafb;   /* Modals */
+  --surface-hover: #f3f4f6;
+  --surface-active: #e5e7eb;
 
-  /* Base Colors */
-  --background: #ffffff;          /* Pure white background */
-  --surface: #f6f8fa;             /* Light gray surface */
-  --surface-elevated: #ffffff;    /* Elevated surface (cards, modals) */
-  --surface-hover: #f0f3f6;       /* Hover state for surface */
-  --surface-active: #e8ecf0;      /* Active/pressed state */
-  
-  /* Border Colors */
-  --border: #d0d7de;              /* Default border */
-  --border-subtle: #e1e4e8;       /* Subtle borders */
-  --border-strong: #8b949e;       /* Strong borders */
-  
-  /* Text Colors */
-  --foreground: #1f2328;          /* Primary text */
-  --foreground-secondary: #57606a;/* Secondary text */
-  --foreground-muted: #8b949e;    /* Muted text */
-  --foreground-disabled: #b1bac4; /* Disabled text */
-  
-  /* Interactive Colors */
-  --primary: #0969da;             /* Primary brand color */
-  --primary-hover: #0550ae;       /* Primary hover */
-  --primary-active: #033d82;     /* Primary active */
-  --primary-subtle: #dbeafe;     /* Primary background */
-  
-  --accent: #8250df;              /* Accent color */
-  --accent-hover: #6f42c1;        /* Accent hover */
-  --accent-subtle: #f3f0ff;      /* Accent background */
-  
-  /* Status Colors */
-  --success: #1a7f37;            /* Success color */
-  --success-hover: #137f2a;      /* Success hover */
-  --success-subtle: #dafbe1;     /* Success background */
-  --warning: #bf8700;            /* Warning color */
-  --warning-subtle: #fff8c5;     /* Warning background */
-  --danger: #cf222e;             /* Danger color */
-  --danger-hover: #a91e2a;       /* Danger hover */
-  --danger-subtle: #ffebe9;      /* Danger background */
-  --red: #dc2626;                /* Red color */
-  --red-hover: #b91c1c;          /* Red hover */
-  --red-subtle: #fef2f2;         /* Red background */
-  --info: #0969da;               /* Info color */
-  --info-subtle: #dbeafe;        /* Info background */
+  /* Borders */
+  --border: #e5e7eb;
+  --border-subtle: #f0f1f3;
+  --border-strong: #9ca3af;
+
+  /* Text */
+  --foreground: #111827;
+  --foreground-secondary: #4b5563;
+  --foreground-muted: #6b7280;
+  --foreground-disabled: #9ca3af;
+
+  /* Brand (Blue) */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-active: #1e40af;
+  --primary-subtle: #eff6ff;
+
+  /* Accent (Purple, subtle) */
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-subtle: #f5f3ff;
+
+  /* Status */
+  --success: #16a34a;
+  --success-subtle: #dcfce7;
+  --warning: #ca8a04;
+  --warning-subtle: #fef9c3;
+  --danger: #dc2626;
+  --danger-subtle: #fee2e2;
+  --info: #2563eb;
+  --info-subtle: #dbeafe;
   
   /* Overlay Colors */
   --overlay: rgba(0, 0, 0, 0.1);  /* Light overlay */
@@ -73,57 +85,59 @@
   --main-margin-top: var(--navbar-height);
   --main-margin-right: var(--sidebar-width);
   --main-width: calc(100vw - var(--sidebar-width));
+  
+  /* Vault page section heights */
+  --vault-hero-height: 60px; /* Approximate hero section height */
+  --vault-stats-height: 80px; /* Approximate stats grid height */
+  --vault-tabs-height: 48px; /* Tab bar height */
+  --vault-page-padding: 48px; /* p-6 = 24px top + 24px bottom */
+  --vault-section-gaps: 16px; /* Total gaps between sections (mb-2 = 8px * 2) */
 }
 
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Base Colors - Dark Theme */
-    --background: #0d1117;           /* Dark background */
-    --surface: #161b22;              /* Dark surface */
-    --surface-elevated: #21262d;     /* Elevated surface (cards, modals) */
-    --surface-hover: #31373f;        /* Hover state for surface */
-    --surface-active: #30363d;       /* Active/pressed state */
-    
-    /* Border Colors - Dark Theme */
-    --border: #30363d;               /* Default border */
-    --border-subtle: #21262d;        /* Subtle borders */
-    --border-strong: #8b949e;         /* Strong borders */
-    
-    /* Text Colors - Dark Theme */
-    --foreground: #f0f6fc;           /* Primary text */
-    --foreground-secondary: #8b949e;   /* Secondary text */
-    --foreground-muted: #6e7681;      /* Muted text */
-    --foreground-disabled: #484f58;   /* Disabled text */
-    
-    /* Interactive Colors - Dark Theme */
-    --primary: #58a6ff;              /* Primary brand color */
-    --primary-hover: #79b8ff;         /* Primary hover */
-    --primary-active: #1f6feb;        /* Primary active */
-    --primary-subtle: #0d419d;       /* Primary background */
-    
-    --accent: #985cec;               /* Accent color */
-    --accent-hover: #d2a8ff;          /* Accent hover */
-    --accent-subtle: #2d1b69;         /* Accent background */
-    
-    /* Status Colors - Dark Theme */
-    --success: #56d364;              /* Success color */
-    --success-subtle: #0d4429;       /* Success background */
-    --warning: #e3b341;              /* Warning color */
-    --warning-subtle: #5d4e00;       /* Warning background */
-    --danger: #f85149;               /* Danger color */
-    --danger-subtle: #5d1a1a;        /* Danger background */
-    --red: #f85149;                  /* Red color */
-    --red-hover: #da3633;            /* Red hover */
-    --red-subtle: #5d1a1a;           /* Red background */
-    --info: #58a6ff;                 /* Info color */
-    --info-subtle: #0d419d;          /* Info background */
-    
-    /* Overlay Colors - Dark Theme */
-    --overlay: rgba(0, 0, 0, 0.3);   /* Dark overlay */
-    --overlay-strong: rgba(0, 0, 0, 0.6); /* Strong dark overlay */
+    /* Lighter, more professional dark backgrounds */
+    --background: #15171a;
+    --surface: #1d1f23;
+    --surface-elevated: #25272d;
+    --surface-hover: #2d3036;
+    --surface-active: #353840;
+
+    /* Refined borders with better contrast */
+    --border: #2d3036;
+    --border-subtle: #25272d;
+    --border-strong: #6b7280;
+
+    /* Improved text contrast for readability */
+    --foreground: #f8f9fa;
+    --foreground-secondary: #adb5bd;
+    --foreground-muted: #6c757d;
+    --foreground-disabled: #495057;
+
+    /* Professional blue primary with better saturation */
+    --primary: #4dabf7;
+    --primary-hover: #339af0;
+    --primary-active: #228be6;
+    --primary-subtle: #1c3d5a;
+
+    /* Refined accent colors */
+    --accent: #9775fa;
+    --accent-hover: #845ef7;
+    --accent-subtle: #3d2f5a;
+
+    /* Status colors with better visibility */
+    --success: #51cf66;
+    --success-subtle: #1e4d2a;
+    --warning: #ffd43b;
+    --warning-subtle: #664d03;
+    --danger: #ff6b6b;
+    --danger-subtle: #7f1d1d;
+    --info: #4dabf7;
+    --info-subtle: #1c3d5a;
   }
 }
+
 
 
 /* Fade-in animation to prevent flash on load */
