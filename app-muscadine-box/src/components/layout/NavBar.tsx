@@ -3,7 +3,7 @@
 import React, { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { NavLink } from "./NavLink";
 import { VaultsDropdown } from "./VaultsDropdown";
 import { navigationItems, NavItem } from "@/config/navigation";
@@ -18,7 +18,6 @@ interface NavBarProps {
 
 export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps) {
     const { activeTab, setActiveTab } = useTab();
-    const router = useRouter();
     const pathname = usePathname();
 
     const isActive = useCallback((item: NavItem): boolean => {

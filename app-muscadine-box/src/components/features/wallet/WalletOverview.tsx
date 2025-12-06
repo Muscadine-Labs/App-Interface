@@ -1,7 +1,6 @@
 'use client';
 
-import { useAppKitAccount, useWalletInfo } from '@reown/appkit/react';
-import Image from 'next/image';
+import { useAccount } from 'wagmi';
 import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { formatNumber, formatCurrency } from '@/lib/formatter';
@@ -20,8 +19,7 @@ import {
 } from '@floating-ui/react';
 
 export default function WalletOverview() {
-    const { address, isConnected } = useAppKitAccount();
-    const { walletInfo } = useWalletInfo();
+    const { address, isConnected } = useAccount();
     const { totalUsdValue, liquidUsdValue, morphoUsdValue, tokenBalances, loading: walletLoading } = useWallet();
     const { registerElement, unregisterElement, onHoverStart, onHoverEnd } = useElementTracker({ component: 'WalletOverview' });
     const [isMounted, setIsMounted] = useState(false);
@@ -143,15 +141,6 @@ export default function WalletOverview() {
     return (
         <div className="flex flex-col items-start justify-start w-full h-full bg-[var(--surface)] rounded-lg px-8 py-4 gap-6 overflow-x-auto" onMouseEnter={() => onHoverStart('wallet-overview-section')} onMouseLeave={() => onHoverEnd('wallet-overview-section')}>
             <div className="flex items-center gap-2">
-                {walletInfo?.icon && (
-                    <Image 
-                        src={walletInfo.icon} 
-                        alt={walletInfo.name || 'Wallet'} 
-                        width={24} 
-                        height={24} 
-                        className="rounded-full"
-                    />
-                )}
                 <h1>
                     Wallet {truncatedAddress && (
                         <span className="text-sm font-normal text-gray-500 ml-1">
