@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Figtree, Funnel_Display, Outfit, Tinos } from 'next/font/google'
+import '@coinbase/onchainkit/styles.css'
 import './globals.css'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { headers } from 'next/headers'

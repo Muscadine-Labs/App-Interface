@@ -13,7 +13,7 @@ import {
 import { type Address } from "viem";
 import { useVaultData } from "../contexts/VaultDataContext";
 
-const BASE_CHAIN_ID = 8453;
+const BASE_CHAIN_ID = 8453 as const;
 
 // Extended ABI to include Withdrawal Queue functions
 const VAULT_ABI_EXTENDED = [
