@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useAppKitAccount } from '@reown/appkit/react';
+import { useAccount } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
 
 interface TokenBalance {
@@ -85,7 +85,7 @@ const ERC20_ABI = [
 ] as const;
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const { address, isConnected } = useAppKitAccount();
+  const { address, isConnected } = useAccount();
   const [tokenPrices, setTokenPrices] = useState<Record<string, number>>({});
   const [alchemyTokenBalances, setAlchemyTokenBalances] = useState<TokenBalance[]>([]);
   const [morphoHoldings, setMorphoHoldings] = useState<MorphoHoldings>({

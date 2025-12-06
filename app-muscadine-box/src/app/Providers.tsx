@@ -5,7 +5,9 @@ import "core-js/proposals/iterator-helpers"; // Polyfill for Iterator Helpers us
 import { ReactNode, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
+import { OnchainKitProvider } from '@coinbase/onchainkit'
 import { config } from './config'
+import { base } from 'wagmi/chains'
 import { ApolloClient, HttpLink, InMemoryCache } from "@apollo/client";
 import { ApolloProvider } from '@apollo/client/react'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
@@ -27,6 +29,19 @@ type Props = {
 export function Providers({ children, initialState }: Props) {
   const [queryClient] = useState(() => new QueryClient())
 
+  const apiKey = process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY
+  const projectId = process.env.NEXT_PUBLIC_BASE_PROJECT_ID
+
+  // Log warning if credentials are missing (only in development)
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    if (!apiKey) {
+      console.warn('⚠️ NEXT_PUBLIC_ONCHAINKIT_API_KEY is not set. Some OnchainKit features may not work.')
+    }
+    if (!projectId) {
+      console.warn('⚠️ NEXT_PUBLIC_BASE_PROJECT_ID is not set. Token holdings may not work.')
+    }
+  }
+
   return (
     <ApolloProvider client={client}>
     <WagmiProvider
@@ -34,17 +49,31 @@ export function Providers({ children, initialState }: Props) {
       initialState={initialState} // undefined in dev is fine
     >
       <QueryClientProvider client={queryClient}>
-        <WalletProvider>
-          <NotificationProvider>
-            <TransactionModalProvider>
-              <VaultDataProvider>
-                <LearningProvider>
-                  {children}
-                </LearningProvider>
-              </VaultDataProvider>
-            </TransactionModalProvider>
-          </NotificationProvider>
-        </WalletProvider>
+        <OnchainKitProvider
+          apiKey={apiKey}
+          projectId={projectId}
+          chain={base}
+          config={{
+            wallet: {
+              display: 'modal',
+              supportedWallets: {
+                rabby: true,
+              }
+            }
+          }}
+        >
+          <WalletProvider>
+            <NotificationProvider>
+              <TransactionModalProvider>
+                <VaultDataProvider>
+                  <LearningProvider>
+                    {children}
+                  </LearningProvider>
+                </VaultDataProvider>
+              </TransactionModalProvider>
+            </NotificationProvider>
+          </WalletProvider>
+        </OnchainKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
     </ApolloProvider>

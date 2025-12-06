@@ -1,49 +1,53 @@
 'use client';
 
+import { useAccount } from 'wagmi';
 import {
-    useAppKitAccount,
-    useAppKit
-} from '@reown/appkit/react';
-import { Button, WalletIcon } from '../../ui';
-
+    ConnectWallet,
+    Wallet,
+    WalletDropdown,
+    WalletAdvancedAddressDetails,
+    WalletAdvancedTokenHoldings,
+    WalletAdvancedTransactionActions,
+    WalletAdvancedWalletActions,
+} from '@coinbase/onchainkit/wallet';
+import { Name } from '@coinbase/onchainkit/identity';
+import { WalletIcon } from '../../ui';
 
 interface ConnectButtonProps {
     centerContent?: boolean;
 }
 
-export default function ConnectButton({ centerContent = false }: ConnectButtonProps) {
-    const { address, isConnected } = useAppKitAccount();
-    const { open } = useAppKit();
+export default function ConnectButton({}: ConnectButtonProps) {
+    const { isConnected, address } = useAccount();
 
-    // If connected, show the address button that opens Reown modal
-    if (isConnected && address) {
-        const truncatedAddress = `${address.slice(0, 6)}...${address.slice(-4)}`;
-
-        return (
-            <Button
-                onClick={() => open()}
-                variant="ghost"
-                size="md"
-                icon={<WalletIcon size="sm" />}
-                fullWidth
-                className="justify-start"
-            >
-                <span className="text-xs">{truncatedAddress}</span>
-            </Button>
-        );
-    }
-
-    // If not connected, show the connect button
+    // Dynamic styles based on connection status
+    const buttonStyles = isConnected
+        ? `
+            text-[var(--foreground)] bg-[var(--background)] rounded py-3 text-xs gap-2
+            hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)]
+        `
+        : `
+            text-[var(--foreground)] bg-[var(--background)] rounded px-2 py-3 text-xs font-normal
+            hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)] 
+        `;
     return (
-        <Button
-            onClick={() => open()}
-            variant="ghost"
-            size="md"
-            icon={<WalletIcon size="sm" />}
-            fullWidth
-            className={centerContent ? 'justify-center' : 'justify-start'}
-        >
-            <span className="text-xs">Connect Wallet</span>
-        </Button>
+        <Wallet>
+            <ConnectWallet className={buttonStyles}>
+                {isConnected && address ? (
+                    <>
+                        <WalletIcon size="sm" />
+                        <Name className="text-xs m-0 p-0 !font-normal" />
+                    </>
+                ) : (
+                    <span className="text-xs">Connect Wallet</span>
+                )}
+            </ConnectWallet>
+            <WalletDropdown>
+                <WalletAdvancedWalletActions />
+                <WalletAdvancedAddressDetails />
+                <WalletAdvancedTransactionActions />
+                <WalletAdvancedTokenHoldings />
+            </WalletDropdown>
+        </Wallet>
     );
 }
