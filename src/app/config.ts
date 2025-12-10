@@ -45,7 +45,8 @@ export const config = createConfig({
       preference: 'smartWalletOnly',
       version: '4',
     }),
-    metaMask(),
+    // Only initialize MetaMask on client side to avoid SSR errors
+    ...(typeof window !== 'undefined' ? [metaMask()] : []),
     // Note: WalletConnect is handled by OnchainKit, so we don't add it here to avoid duplicate initialization
   ],
   storage: createHybridStorage(),
