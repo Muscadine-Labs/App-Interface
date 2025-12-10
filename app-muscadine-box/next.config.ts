@@ -27,25 +27,6 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  experimental: {
-    turbo: {
-      // Turbopack aliases to match Webpack aliases for singleton resolution
-      resolveAlias: {
-        'wagmi': './node_modules/wagmi',
-        '@tanstack/react-query': './node_modules/@tanstack/react-query',
-      },
-      // Turbopack configuration to prevent scanning system directories
-      resolveExtensions: [
-        ".js",
-        ".jsx",
-        ".ts",
-        ".tsx",
-        ".json",
-        ".mjs",
-        ".cjs",
-      ],
-    },
-  },
   images: {
     remotePatterns: [
       {
