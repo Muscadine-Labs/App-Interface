@@ -1,9 +1,17 @@
-import { createConfig, createStorage, cookieStorage, http, fallback } from 'wagmi'
+'use client'
+
+import { getDefaultConfig } from '@rainbow-me/rainbowkit'
 import { base } from 'wagmi/chains'
-import { coinbaseWallet, metaMask } from 'wagmi/connectors'
+import { http, fallback } from 'wagmi'
+import { 
+  coinbaseWallet, 
+  metaMaskWallet, 
+  walletConnectWallet 
+} from '@rainbow-me/rainbowkit/wallets'
 
 // Validate required environment variables
 const alchemyApiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
 if (!alchemyApiKey) {
   throw new Error(
@@ -12,33 +20,40 @@ if (!alchemyApiKey) {
   );
 }
 
+if (!walletConnectProjectId) {
+  throw new Error(
+    'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required but not set. ' +
+    'Get a project ID at https://cloud.walletconnect.com/'
+  );
+}
+
 const alchemyUrl = `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
 
-export const config = createConfig({
-  chains: [base],
-  connectors: [
-    coinbaseWallet({
-      appName: 'Muscadine',
-      preference: 'smartWalletOnly',
-      version: '4',
-    }),
-    metaMask(),
-  ],
-  // REPLACEMENT: Use standard cookieStorage. 
-  // This automatically handles client-side persistence (via document.cookie)
-  // and server-side reading.
-  storage: createStorage({
-    storage: cookieStorage, 
-  }),
-  ssr: true,
+// Configure wallets
+const wallets = [
+  {
+    groupName: 'Recommended',
+    wallets: [
+      coinbaseWallet,
+      metaMaskWallet,
+      walletConnectWallet,
+    ],
+  },
+];
+
+export const config = getDefaultConfig({
+  appName: 'Muscadine',
+  projectId: walletConnectProjectId,
+  chains: [base], // Base is the default and only chain
+  wallets,
   transports: {
     [base.id]: fallback([
-        http(alchemyUrl),
+      http(alchemyUrl),
+      http(), // Public RPC fallback for balance fetching
     ]),
   },
-  batch: {
-    multicall: true 
-  }
+  ssr: true,
+ 
 })
 
 declare module 'wagmi' {

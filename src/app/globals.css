@@ -159,3 +159,18 @@ body {
   opacity: 1;
   transition: opacity 0.2s ease-in-out;
 }
+
+/* RainbowKit ConnectButton styling to match app buttons */
+[data-rk] button {
+  font-size: 0.875rem !important; /* text-sm = 14px */
+  line-height: 1.25rem !important;
+}
+
+/* Match ConnectButton text size and padding with other header buttons */
+[data-rk] [data-testid="rk-connect-button"] {
+  font-size: 0.875rem !important; /* text-sm = 14px */
+}
+
+[data-rk] [data-testid="rk-connect-button"] > div {
+  font-size: 0.875rem !important; /* text-sm = 14px */
+}
