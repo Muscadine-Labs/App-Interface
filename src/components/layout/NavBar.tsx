@@ -7,7 +7,6 @@ import { usePathname } from 'next/navigation';
 import { VaultsDropdown } from "./VaultsDropdown";
 import { navigationItems, NavItem } from "@/config/navigation";
 import { ConnectButton } from "../features/wallet";
-import { useTab } from "@/contexts/TabContext";
 import { Icon } from "../ui/Icon";
 
 interface NavBarProps {
@@ -16,7 +15,6 @@ interface NavBarProps {
 }
 
 export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps) {
-    const { activeTab, setActiveTab } = useTab();
     const pathname = usePathname();
 
     const isActive = useCallback((item: NavItem): boolean => {
@@ -36,7 +34,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                     {/* Logo/Brand with Link */}
                     <Link 
                         href="/" 
-                        onClick={() => setActiveTab('dashboard')}
                         className="flex items-center gap-3 "
                     >
                         <Image
@@ -57,6 +54,11 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             <div key={item.id} onClick={(e) => e.stopPropagation()}>
                                 {item.id === 'vaults' && (
                                     <VaultsDropdown isActive={isActive(item)} />
+                                ) : (
+                                    <NavLink 
+                                        item={item}
+                                        isActive={isActive(item)}
+                                    />
                                 )}
                             </div>
                         ))}

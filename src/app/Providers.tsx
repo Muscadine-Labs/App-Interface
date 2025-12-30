@@ -12,10 +12,8 @@ import '@rainbow-me/rainbowkit/styles.css'
 import { ApolloClient, HttpLink, InMemoryCache } from "@apollo/client";
 import { ApolloProvider } from '@apollo/client/react'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
-import { NotificationProvider } from '../contexts/NotificationContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionModalProvider } from '../contexts/TransactionModalContext'
-import { LearningProvider } from '../contexts/LearningContext'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'
 import { logger } from '../lib/logger'
 
@@ -59,15 +57,11 @@ export function Providers({ children, initialState }: Props) {
               })}
             >
               <WalletProvider>
-                <NotificationProvider>
-                  <TransactionModalProvider>
-                    <VaultDataProvider>
-                      <LearningProvider>
-                        {children}
-                      </LearningProvider>
-                    </VaultDataProvider>
-                  </TransactionModalProvider>
-                </NotificationProvider>
+                <TransactionModalProvider>
+                  <VaultDataProvider>
+                    {children}
+                  </VaultDataProvider>
+                </TransactionModalProvider>
               </WalletProvider>
             </RainbowKitProvider>
           </QueryClientProvider>
