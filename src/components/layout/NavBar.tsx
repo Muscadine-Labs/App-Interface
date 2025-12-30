@@ -54,11 +54,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             <div key={item.id} onClick={(e) => e.stopPropagation()}>
                                 {item.id === 'vaults' && (
                                     <VaultsDropdown isActive={isActive(item)} />
-                                ) : (
-                                    <NavLink 
-                                        item={item}
-                                        isActive={isActive(item)}
-                                    />
                                 )}
                             </div>
                         ))}
