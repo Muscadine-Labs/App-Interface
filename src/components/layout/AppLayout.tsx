@@ -2,23 +2,20 @@
 
 import React, { type ReactNode, useState, useEffect } from 'react';
 import { NavBar } from './NavBar';
-import { TabProvider } from '@/contexts/TabContext';
-import { NotificationContainer } from '../common/NotificationContainer';
 import RightSidebar from './RightSidebar';
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
 
   return (
-    <TabProvider>
+    <>
       <LayoutContent 
         isRightSidebarCollapsed={isRightSidebarCollapsed}
         setIsRightSidebarCollapsed={setIsRightSidebarCollapsed}
       >
         {children}
       </LayoutContent>
-      <NotificationContainer />
-    </TabProvider>
+    </>
   );
 }
 
