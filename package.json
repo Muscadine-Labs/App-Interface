@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@apollo/client": "^4.0.7",
-    "@coinbase/onchainkit": "latest",
     "@floating-ui/react": "^0.27.16",
     "@morpho-org/blue-sdk": "^5.2.0",
     "@morpho-org/blue-sdk-viem": "^4.1.2",
@@ -19,6 +18,7 @@
     "@morpho-org/morpho-ts": "^2.4.3",
     "@morpho-org/simulation-sdk": "^3.2.2",
     "@morpho-org/simulation-sdk-wagmi": "^3.1.2",
+    "@rainbow-me/rainbowkit": "^2.2.10",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@tanstack/react-query": "^5.90.3",

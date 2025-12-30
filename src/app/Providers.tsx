@@ -2,12 +2,13 @@
 
 import "core-js/proposals/iterator-helpers"; // Polyfill for Iterator Helpers used by @morpho-org/blue-sdk-wagmi
 
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
-import { OnchainKitProvider } from '@coinbase/onchainkit'
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
 import { config } from './config'
 import { base } from 'wagmi/chains'
+import '@rainbow-me/rainbowkit/styles.css'
 import { ApolloClient, HttpLink, InMemoryCache } from "@apollo/client";
 import { ApolloProvider } from '@apollo/client/react'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
@@ -28,19 +29,7 @@ type Props = {
 
 export function Providers({ children, initialState }: Props) {
   const [queryClient] = useState(() => new QueryClient())
-
-  const apiKey = process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY
-  const projectId = process.env.NEXT_PUBLIC_BASE_PROJECT_ID
-
-  // Log warning if credentials are missing (only in development)
-  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-    if (!apiKey) {
-      logger.warn('NEXT_PUBLIC_ONCHAINKIT_API_KEY is not set. Some OnchainKit features may not work.');
-    }
-    if (!projectId) {
-      logger.warn('NEXT_PUBLIC_BASE_PROJECT_ID is not set. Token holdings may not work.');
-    }
-  }
+  const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 
   return (
     <ErrorBoundary
@@ -57,18 +46,15 @@ export function Providers({ children, initialState }: Props) {
           reconnectOnMount={true} // Automatically reconnect on mount (page reload) - defaults to true but explicit for clarity
         >
           <QueryClientProvider client={queryClient}>
-            <OnchainKitProvider
-              apiKey={apiKey}
-              projectId={projectId}
-              chain={base}
-              config={{
-                wallet: {
-                  display: 'modal',
-                  supportedWallets: {
-                    rabby: true,
-                  }
-                }
-              }}
+            <RainbowKitProvider
+              initialChain={base}
+              theme={darkTheme({
+                accentColor: 'var(--primary)', // Dynamically reads --accent from globals.css
+                accentColorForeground: 'white',
+                borderRadius: 'medium', // Matches site's rounded corners
+                fontStack: 'system',
+                overlayBlur: 'small',
+              })}
             >
               <WalletProvider>
                 <TransactionModalProvider>
@@ -77,7 +63,7 @@ export function Providers({ children, initialState }: Props) {
                   </VaultDataProvider>
                 </TransactionModalProvider>
               </WalletProvider>
-            </OnchainKitProvider>
+            </RainbowKitProvider>
           </QueryClientProvider>
         </WagmiProvider>
       </ApolloProvider>

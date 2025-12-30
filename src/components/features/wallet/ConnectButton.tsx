@@ -1,53 +1,70 @@
 'use client';
 
-import { useAccount } from 'wagmi';
-import {
-    ConnectWallet,
-    Wallet,
-    WalletDropdown,
-    WalletAdvancedAddressDetails,
-    WalletAdvancedTokenHoldings,
-    WalletAdvancedTransactionActions,
-    WalletAdvancedWalletActions,
-} from '@coinbase/onchainkit/wallet';
-import { Name } from '@coinbase/onchainkit/identity';
-import { WalletIcon } from '../../ui';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 interface ConnectButtonProps {
     centerContent?: boolean;
 }
 
-export default function ConnectButton({}: ConnectButtonProps) {
-    const { isConnected, address } = useAccount();
-
-    // Dynamic styles based on connection status
-    const buttonStyles = isConnected
-        ? `
-            text-[var(--foreground)] bg-[var(--background)] rounded py-3 text-xs gap-2
-            hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)]
-        `
-        : `
-            text-[var(--foreground)] bg-[var(--background)] rounded px-2 py-3 text-xs font-normal
-            hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)] 
-        `;
+export default function ConnectButtonComponent({}: ConnectButtonProps) {
     return (
-        <Wallet>
-            <ConnectWallet className={buttonStyles}>
-                {isConnected && address ? (
-                    <>
-                        <WalletIcon size="sm" />
-                        <Name className="text-xs m-0 p-0 !font-normal" />
-                    </>
-                ) : (
-                    <span className="text-xs">Connect Wallet</span>
-                )}
-            </ConnectWallet>
-            <WalletDropdown>
-                <WalletAdvancedWalletActions />
-                <WalletAdvancedAddressDetails />
-                <WalletAdvancedTransactionActions />
-                <WalletAdvancedTokenHoldings />
-            </WalletDropdown>
-        </Wallet>
+        <ConnectButton.Custom>
+            {({
+                account,
+                chain,
+                openAccountModal,
+                openChainModal,
+                openConnectModal,
+                authenticationStatus,
+                mounted,
+            }) => {
+                const ready = mounted && authenticationStatus !== 'loading';
+                const connected =
+                    ready &&
+                    account &&
+                    chain &&
+                    (!authenticationStatus ||
+                        authenticationStatus === 'authenticated');
+
+                return (
+                    <div
+                        {...(!ready && {
+                            'aria-hidden': true,
+                            style: {
+                                opacity: 0,
+                                pointerEvents: 'none',
+                                userSelect: 'none',
+                            },
+                        })}
+                    >
+                        {!connected ? (
+                            <button
+                                onClick={openConnectModal}
+                                type="button"
+                                className="inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 text-[var(--foreground)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border)] rounded-md hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)]"
+                            >
+                                Connect Wallet
+                            </button>
+                        ) : chain.unsupported ? (
+                            <button
+                                onClick={openChainModal}
+                                type="button"
+                                className="inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 text-[var(--foreground)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border)] rounded-md hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)]"
+                            >
+                                Wrong network
+                            </button>
+                        ) : (
+                            <button
+                                onClick={openAccountModal}
+                                type="button"
+                                className="inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 text-[var(--foreground)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border)] rounded-md hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)]"
+                            >
+                                {account.displayName}
+                            </button>
+                        )}
+                    </div>
+                );
+            }}
+        </ConnectButton.Custom>
     );
 }
