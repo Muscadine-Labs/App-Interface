@@ -68,6 +68,8 @@ const VAULT_ABI = [
 export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
   const [amount, setAmount] = useState<string>('');
+  const [isMaxDepositSelected, setIsMaxDepositSelected] = useState(false);
+  const [isMaxWithdrawSelected, setIsMaxWithdrawSelected] = useState(false);
   const [assetPrice, setAssetPrice] = useState<number | null>(null);
   const [assetAddress, setAssetAddress] = useState<string | null>(null);
   const [assetBalanceBigInt, setAssetBalanceBigInt] = useState<bigint | null>(null);
@@ -91,6 +93,8 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
   // Reset amount when switching tabs
   useEffect(() => {
     setAmount('');
+    setIsMaxDepositSelected(false);
+    setIsMaxWithdrawSelected(false);
   }, [activeTab]);
 
   // Get asset address from vault contract
@@ -546,13 +550,24 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       return;
     }
 
+    // If max withdraw was selected, trigger withdrawAll to use full share balance
+    if (isMaxWithdrawSelected) {
+      openTransactionModal(
+        'withdrawAll',
+        vaultData.address,
+        vaultData.name,
+        vaultData.symbol
+      );
+      return;
+    }
+
     const amountToPass = amount?.trim() || '';
     
     if (!amountToPass || parseFloat(amountToPass) <= 0) {
       alert('Please enter a valid amount');
       return;
     }
-
+    
     openTransactionModal(
       'withdraw',
       vaultData.address,
@@ -567,6 +582,8 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
     // Allow empty string for better UX
     if (value === '') {
       setAmount('');
+      setIsMaxDepositSelected(false);
+      setIsMaxWithdrawSelected(false);
       return;
     }
     
@@ -578,12 +595,16 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
     const numValue = parseFloat(value);
     if (isNaN(numValue)) {
       setAmount(value);
+      setIsMaxDepositSelected(false);
+      setIsMaxWithdrawSelected(false);
       return;
     }
     
     // Don't auto-correct while typing, just allow it
     // Validation will happen on blur
     setAmount(value);
+    setIsMaxDepositSelected(false);
+    setIsMaxWithdrawSelected(false);
   };
 
   // Set max amount
@@ -592,6 +613,8 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
     const contractDecimals = vaultData.assetDecimals ?? 18;
     
     if (isDeposit) {
+      setIsMaxDepositSelected(true);
+      setIsMaxWithdrawSelected(false);
       // Use BigInt directly if available (BTC, USDC, etc.) - most accurate, avoids float precision issues
       if (assetBalanceBigInt !== null) {
         setAmount(formatBigIntForInput(assetBalanceBigInt, contractDecimals));
@@ -602,6 +625,8 @@ export default function VaultActionCard({ vaultData }: VaultActionCardProps) {
       // This handles the float precision carefully with truncation
       setAmount(formatAssetAmountForInput(maxDepositRaw, contractDecimals, 'down'));
     } else {
+      setIsMaxWithdrawSelected(true);
+      setIsMaxDepositSelected(false);
       // For withdraw, use BigInt directly if available (most accurate, avoids float precision issues)
       if (withdrawableAssetsBigInt && withdrawableAssetsBigInt > 0) {
         setAmount(formatBigIntForInput(withdrawableAssetsBigInt, contractDecimals));
