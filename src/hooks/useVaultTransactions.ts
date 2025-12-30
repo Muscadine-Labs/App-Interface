@@ -312,6 +312,30 @@ export function useVaultTransactions(vaultAddress?: string) {
             throw new Error('Failed to convert assets to shares. Please try again.');
           }
           
+          // BUG FIX: If convertToShares returns 0 for a small amount, use the user's actual share balance
+          // This happens when the requested asset amount is so small that it rounds down to 0 shares.
+          // In this case, we should withdraw all available shares (similar to withdrawAll).
+          if (sharesBigInt === BigInt(0) && amountBigInt > BigInt(0)) {
+            // Get the user's actual share balance
+            const userShares = await publicClient.readContract({
+              address: normalizedVault,
+              abi: ERC20_BALANCE_ABI,
+              functionName: 'balanceOf',
+              args: [userAddress],
+            });
+            
+            if (userShares === BigInt(0)) {
+              throw new Error('No shares to withdraw. The requested amount is too small to convert to shares.');
+            }
+            
+            // Use all available shares since the requested amount rounds to 0
+            sharesBigInt = userShares;
+          }
+          
+          if (sharesBigInt === BigInt(0)) {
+            throw new Error('Cannot withdraw 0 shares. The requested amount may be too small.');
+          }
+          
           inputOperations.push({
             type: 'MetaMorpho_Withdraw',
             address: normalizedVault,
