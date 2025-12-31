@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
-import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
 import CopiableAddress from '@/components/common/CopiableAddress';
 
@@ -61,17 +61,6 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
 
     fetchActivity();
   }, [vaultData.address, vaultData.chainId, address]);
-
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
@@ -179,7 +168,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                   ...userTransactions.map(tx => [
                     formatDate(tx.timestamp),
                     tx.type,
-                    tx.assetsUsd?.toFixed(2) || '0',
+                    tx.assetsUsd ? formatCurrency(tx.assetsUsd).replace('$', '') : '0',
                     tx.transactionHash || '',
                   ].join(',')),
                 ].join('\n');

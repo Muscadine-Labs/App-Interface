@@ -33,11 +33,14 @@ export function AccountSelector({
   const { address } = useAccount();
   const { tokenBalances, ethBalance, morphoHoldings } = useWallet();
   const { getVaultData, fetchVaultData } = useVaultData();
+  const hasPreloadedRef = useRef(false);
 
   useOnClickOutside(dropdownRef, () => setIsOpen(false));
 
-  // Preload vault data for all vaults when component mounts
+  // Preload vault data for all vaults when component mounts (only once)
   useEffect(() => {
+    if (hasPreloadedRef.current) return;
+    
     const preloadAllVaults = async () => {
       const vaultsToPreload = Object.values(VAULTS);
       
@@ -45,10 +48,12 @@ export function AccountSelector({
       await Promise.allSettled(
         vaultsToPreload.map(vault => fetchVaultData(vault.address, vault.chainId))
       );
+      hasPreloadedRef.current = true;
     };
     
     preloadAllVaults();
-  }, [fetchVaultData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount - fetchVaultData is stable enough for this use case
 
   // Build wallet account - single wallet account (not per-token)
   // Wallet should always be shown because:

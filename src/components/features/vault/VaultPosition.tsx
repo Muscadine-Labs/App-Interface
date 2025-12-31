@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import { useWallet } from '@/contexts/WalletContext';
-import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber, formatCurrency } from '@/lib/formatter';
 import { calculateYAxisDomain, calculateCurrentAssetsRaw, resolveAssetPriceUsd } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
+import { useToast } from '@/contexts/ToastContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 
@@ -40,10 +41,16 @@ const TIME_FRAME_SECONDS: Record<TimeFrame, number> = {
   '7D': 7 * 24 * 60 * 60,
 };
 
+const formatDate = (timestamp: number) => {
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
 export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const router = useRouter();
   const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
+  const { error: showErrorToast } = useToast();
   const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
@@ -67,19 +74,24 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const currentSharePriceUsd = currentVaultPosition?.vault.state.sharePriceUsd;
   const currentTotalSupply = currentVaultPosition?.vault.state.totalSupply;
 
-  const userVaultValueUsd = currentVaultPosition ? 
-    (parseFloat(currentVaultPosition.shares) / WEI_PER_ETHER) * currentVaultPosition.vault.state.sharePriceUsd : 0;
+  const userVaultValueUsd = useMemo(() => {
+    if (!currentVaultPosition) return 0;
+    return (parseFloat(currentVaultPosition.shares) / WEI_PER_ETHER) * currentVaultPosition.vault.state.sharePriceUsd;
+  }, [currentVaultPosition]);
 
   // Calculate asset amount from shares
-  const userVaultAssetAmount = currentVaultPosition && vaultData.totalAssets && vaultData.totalValueLocked
-    ? (() => {
-        const sharesDecimal = parseFloat(currentVaultPosition.shares) / WEI_PER_ETHER;
-        const totalSupplyDecimal = parseFloat(currentVaultPosition.vault.state.totalSupply) / WEI_PER_ETHER;
-        const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18);
-        const sharePriceInAsset = totalSupplyDecimal > 0 ? totalAssetsDecimal / totalSupplyDecimal : 0;
-        return sharesDecimal * sharePriceInAsset;
-      })()
-    : 0;
+  const userVaultAssetAmount = useMemo(() => {
+    if (!currentVaultPosition || !vaultData.totalAssets || !vaultData.totalValueLocked) {
+      return 0;
+    }
+    
+    const sharesDecimal = parseFloat(currentVaultPosition.shares) / WEI_PER_ETHER;
+    const totalSupplyDecimal = parseFloat(currentVaultPosition.vault.state.totalSupply) / WEI_PER_ETHER;
+    const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18);
+    const sharePriceInAsset = totalSupplyDecimal > 0 ? totalAssetsDecimal / totalSupplyDecimal : 0;
+    
+    return sharesDecimal * sharePriceInAsset;
+  }, [currentVaultPosition, vaultData.totalAssets, vaultData.totalValueLocked, vaultData.assetDecimals]);
 
   useEffect(() => {
     const fetchActivity = async () => {
@@ -196,6 +208,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
         );
         setUserTransactions([]);
         setHistoricalVaultData([]);
+        showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         setLoading(false);
       }
@@ -203,16 +216,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
     fetchActivity();
   }, [vaultData, address, currentSharePriceUsd, currentTotalSupply, currentVaultPosition?.vault.state?.sharePriceUsd]);
-
-  const formatDateShort = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const formatDateForChart = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
 
   // Calculate share price in asset terms (tokens per share)
   const sharePriceInAsset = useMemo(() => {
@@ -244,7 +247,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   }, [currentVaultPosition, vaultData.totalAssets, vaultData.assetDecimals, userVaultAssetAmount]);
 
   // Calculate user's position history using actual GraphQL data points
-  const calculateUserDepositHistory = () => {
+  const userDepositHistory = useMemo(() => {
     // Always use GraphQL data points, even if user has no transactions yet
     if (historicalVaultData.length === 0) return [];
 
@@ -350,7 +353,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       const positionValueUsd = sharesDecimal * sharePriceUsdForDay;
       
       // Calculate token value using historical share price in asset terms
-      // Always calculate from shares × sharePriceInAsset to get daily updates
       let positionValueToken = 0;
       if (sharesDecimal > 0) {
         // Get historical asset price for this day
@@ -361,7 +363,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
         
         if (historicalAssetPriceUsd > 0 && sharePriceUsdForDay > 0) {
           // sharePriceInAsset = sharePriceUsd / assetPriceUsd
-          // This changes daily as sharePriceUsd and assetPriceUsd change
           const historicalSharePriceInAsset = sharePriceUsdForDay / historicalAssetPriceUsd;
           positionValueToken = sharesDecimal * historicalSharePriceInAsset;
         } else if (sharePriceInAsset > 0) {
@@ -372,16 +373,14 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       
       dailyData.push({
         timestamp: historicalPoint.timestamp,
-        date: formatDateShort(historicalPoint.timestamp),
+        date: formatDate(historicalPoint.timestamp),
         valueUsd: Math.max(0, positionValueUsd),
         valueToken: Math.max(0, positionValueToken),
       });
     }
     
     return dailyData;
-  };
-
-  const userDepositHistory = calculateUserDepositHistory();
+  }, [historicalVaultData, currentVaultPosition, userVaultAssetAmount, sharePriceInAsset, userTransactions, vaultData.assetDecimals, vaultData.sharePrice]);
 
   // Calculate available time frames based on data range
   const availableTimeFrames = useMemo(() => {
@@ -452,151 +451,51 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     return domain || [0, 100];
   }, [filteredChartData]);
 
-  // Get ticks for 7D period - show every day
-  const get7DTicks = useMemo(() => {
-    if (selectedTimeFrame !== '7D' || filteredChartData.length === 0) return undefined;
+  // Helper function to calculate chart ticks based on time frame
+  const getChartTicks = useMemo(() => {
+    if (filteredChartData.length === 0) return undefined;
     
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    
-    // Sort data by timestamp to ensure chronological order
+    // Sort data once for all operations
     const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
     
-    sortedData.forEach((point) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Add tick for each day
-      if (!seenDates.has(dateKey)) {
-        ticks.push(point.timestamp);
-        seenDates.add(dateKey);
-      }
-    });
+    // Determine interval configuration based on selected time frame
+    let dayInterval: number;
     
-    return ticks.length > 0 ? ticks : undefined;
-  }, [selectedTimeFrame, filteredChartData]);
-
-  // Get ticks for 30D period - every 2 days
-  const get30DTicks = useMemo(() => {
-    if (selectedTimeFrame !== '30D' || filteredChartData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    let dayCount = 0;
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    sortedData.forEach((point) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Only add tick if we haven't seen this date before
-      if (!seenDates.has(dateKey)) {
-        seenDates.add(dateKey);
-        // Add every other day (even dayCount: 0, 2, 4, 6...)
-        if (dayCount % 2 === 0) {
-          ticks.push(point.timestamp);
-        }
-        dayCount++;
-      }
-    });
-    
-    return ticks.length > 0 ? ticks : undefined;
-  }, [selectedTimeFrame, filteredChartData]);
-
-  // Get ticks for 90D period - every 5 days
-  const get90DTicks = useMemo(() => {
-    if (selectedTimeFrame !== '90D' || filteredChartData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    let dayCount = 0;
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    sortedData.forEach((point) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Only add tick if we haven't seen this date before
-      if (!seenDates.has(dateKey)) {
-        seenDates.add(dateKey);
-        // Add every 5 days (dayCount: 0, 5, 10, 15...)
-        if (dayCount % 5 === 0) {
-          ticks.push(point.timestamp);
-        }
-        dayCount++;
-      }
-    });
-    
-    return ticks.length > 0 ? ticks : undefined;
-  }, [selectedTimeFrame, filteredChartData]);
-
-  // Get ticks for 1Y period - every 30 days
-  const get1YTicks = useMemo(() => {
-    if (selectedTimeFrame !== '1Y' || filteredChartData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    let dayCount = 0;
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    sortedData.forEach((point) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Only add tick if we haven't seen this date before
-      if (!seenDates.has(dateKey)) {
-        seenDates.add(dateKey);
-        // Add every 30 days (dayCount: 0, 30, 60, 90...)
-        if (dayCount % 30 === 0) {
-          ticks.push(point.timestamp);
-        }
-        dayCount++;
-      }
-    });
-    
-    return ticks.length > 0 ? ticks : undefined;
-  }, [selectedTimeFrame, filteredChartData]);
-
-  // Get ticks for "all" period - dynamic intervals based on data range
-  const getAllTicks = useMemo(() => {
-    if (selectedTimeFrame !== 'all' || filteredChartData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    if (sortedData.length === 0) return undefined;
-    
-    // Calculate total time span in days
-    const firstTimestamp = sortedData[0].timestamp;
-    const lastTimestamp = sortedData[sortedData.length - 1].timestamp;
-    const totalDays = (lastTimestamp - firstTimestamp) / (24 * 60 * 60);
-    
-    // Determine interval based on total days
-    let dayInterval = 3;
-    if (totalDays > 365) {
-      dayInterval = 30; // Every 30 days for very long spans
-    } else if (totalDays > 180) {
-      dayInterval = 12; // Every 12 days for long spans
-    } else if (totalDays > 90) {
-      dayInterval = 10; // Every 10 days for medium-long spans
-    } else if (totalDays > 60) {
-      dayInterval = 7; // Every 7 days for medium spans
-    } else if (totalDays > 30) {
-      dayInterval = 5; // Every 5 days for shorter spans
+    if (selectedTimeFrame === '7D') {
+      dayInterval = 1; // Every day
+    } else if (selectedTimeFrame === '30D') {
+      dayInterval = 2; // Every 2 days
+    } else if (selectedTimeFrame === '90D') {
+      dayInterval = 5; // Every 5 days
+    } else if (selectedTimeFrame === '1Y') {
+      dayInterval = 30; // Every 30 days
     } else {
-      dayInterval = 3; // Every 3 days for very short spans
+      // Calculate dynamic interval based on data range for 'all'
+      const firstTimestamp = sortedData[0].timestamp;
+      const lastTimestamp = sortedData[sortedData.length - 1].timestamp;
+      const totalDays = (lastTimestamp - firstTimestamp) / (24 * 60 * 60);
+      
+      // Determine interval based on total days
+      if (totalDays > 365) {
+        dayInterval = 30;
+      } else if (totalDays > 180) {
+        dayInterval = 12;
+      } else if (totalDays > 90) {
+        dayInterval = 10;
+      } else if (totalDays > 60) {
+        dayInterval = 7;
+      } else if (totalDays > 30) {
+        dayInterval = 5;
+      } else {
+        dayInterval = 3;
+      }
     }
     
+    // Generate ticks based on interval
+    const ticks: number[] = [];
+    const seenDates = new Set<string>();
     let dayCount = 0;
+    
     sortedData.forEach((point) => {
       const date = new Date(point.timestamp * 1000);
       const dateKey = date.toDateString();
@@ -612,6 +511,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     
     return ticks.length > 0 ? ticks : undefined;
   }, [selectedTimeFrame, filteredChartData]);
+  
 
   const handleDeposit = () => {
     router.push(`/transactions?vault=${vaultData.address}&action=deposit`);
@@ -622,7 +522,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   };
 
   // Format APY
-  const apyPercent = (vaultData.apy * 100).toFixed(2);
+  const apyPercent = formatPercentage(vaultData.apy);
 
   return (
     <div className="space-y-6">
@@ -657,14 +557,14 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           <div>
             <p className="text-xs text-[var(--foreground-secondary)] mb-1">Current Earnings Rate</p>
             <p className="text-3xl font-bold text-[var(--foreground)]">
-              {apyPercent}%
+              {apyPercent}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
               Annual return you can expect
             </p>
             {vaultData.apyChange !== undefined && vaultData.apyChange !== 0 && (
               <p className={`text-xs mt-2 ${vaultData.apyChange > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
-                {vaultData.apyChange > 0 ? '↑' : '↓'} {Math.abs(vaultData.apyChange * 100).toFixed(2)}% from last period
+                {vaultData.apyChange > 0 ? '↑' : '↓'} {formatPercentage(Math.abs(vaultData.apyChange))} from last period
               </p>
             )}
           </div>
@@ -750,23 +650,23 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
-                      tickFormatter={formatDateForChart}
+                      tickFormatter={formatDate}
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                       interval="preserveStartEnd"
-                      ticks={selectedTimeFrame === '7D' ? get7DTicks : selectedTimeFrame === '30D' ? get30DTicks : selectedTimeFrame === '90D' ? get90DTicks : selectedTimeFrame === '1Y' ? get1YTicks : selectedTimeFrame === 'all' ? getAllTicks : undefined}
+                      ticks={getChartTicks}
                     />
                     <YAxis 
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (valueType === 'usd') {
-                          return `$${(value / 1000).toFixed(2)}k`;
+                          return formatSmartCurrency(value / 1000).replace('$', '$').replace('K', 'k');
                         } else {
                           // Format token amount
                           if (value >= 1000) {
-                            return `${(value / 1000).toFixed(2)}k`;
+                            return formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
                           }
-                          return value.toFixed(2);
+                          return formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                         }
                       }}
                       stroke="var(--foreground-secondary)"
@@ -780,7 +680,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       }}
                       formatter={(value: number) => {
                         if (valueType === 'usd') {
-                          return [`$${value.toFixed(2)}`, 'Your Position'];
+                          return [formatCurrency(value), 'Your Position'];
                         } else {
                           return [
                             formatAssetAmount(
@@ -794,7 +694,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       }}
                       labelFormatter={(label) => {
                         const timestamp = typeof label === 'number' ? label : parseFloat(String(label));
-                        return `Date: ${formatDateForChart(timestamp)}`;
+                        return `Date: ${formatDate(timestamp)}`;
                       }}
                     />
                     <Area 

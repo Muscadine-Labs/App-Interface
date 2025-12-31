@@ -10,7 +10,7 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { VAULTS } from '@/lib/vaults';
 import { VaultAccount, WalletAccount } from '@/types/vault';
-import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax } from '@/lib/formatter';
+import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, formatCurrency } from '@/lib/formatter';
 import { Button } from '@/components/ui';
 import { formatUnits } from 'viem';
 
@@ -30,7 +30,7 @@ export default function TransactionsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { tokenBalances, ethBalance, morphoHoldings } = useWallet();
-  const vaultDataContext = useVaultData();
+  const { getVaultData } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const {
     fromAccount,
@@ -53,7 +53,7 @@ export default function TransactionsPage() {
     if (vaultAddress && action) {
       const vault = Object.values(VAULTS).find((v) => v.address.toLowerCase() === vaultAddress.toLowerCase());
       if (vault) {
-        const vaultData = vaultDataContext.getVaultData(vault.address);
+        const vaultData = getVaultData(vault.address);
         const position = morphoHoldings.positions.find(
           (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
         );
@@ -93,7 +93,9 @@ export default function TransactionsPage() {
         // Keep status as 'idle' so user stays on select page and can modify before proceeding
       }
     }
-  }, [searchParams, vaultDataContext, morphoHoldings, setFromAccount, setToAccount]);
+    // Only depend on searchParams and stable functions - morphoHoldings.positions is checked inside
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setFromAccount, setToAccount]);
 
   // Get vault position for share balance
   const vaultPosition = fromAccount?.type === 'vault' 
@@ -172,7 +174,7 @@ export default function TransactionsPage() {
     if (!fromAccount || fromAccount.type !== 'vault' || !derivedAsset) return '';
     
     const vaultAccount = fromAccount as VaultAccount;
-    const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
+    const vaultData = getVaultData(vaultAccount.address);
     const position = morphoHoldings.positions.find(
       (pos) => pos.vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
     );
@@ -232,7 +234,7 @@ export default function TransactionsPage() {
       // For vault withdrawals: use shares as the source of truth (recommended by Morpho)
       // Following ERC-4626 best practices: maxRedeem = user's share balance
       const vaultAccount = fromAccount as VaultAccount;
-      const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
+      const vaultData = getVaultData(vaultAccount.address);
       const position = vaultPosition;
 
       if (position && vaultData) {
@@ -272,7 +274,7 @@ export default function TransactionsPage() {
       }
     } else {
       const vaultAccount = fromAccount as VaultAccount;
-      const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
+      const vaultData = getVaultData(vaultAccount.address);
       const decimals = vaultData?.assetDecimals || 18;
       setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
     }
@@ -472,7 +474,7 @@ export default function TransactionsPage() {
                   return (
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
                       <span className="text-sm text-[var(--foreground-muted)]">
-                        ≈ ${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ≈ {formatCurrency(dollarAmount)}
                       </span>
                     </div>
                   );

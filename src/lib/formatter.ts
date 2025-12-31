@@ -17,6 +17,29 @@ export function formatNumber(
 }
 
 /**
+ * Formats a percentage value for display.
+ * @param value - The decimal percentage value (e.g., 0.05 for 5%).
+ * @param options - Formatting options (default: { decimals: 2, includeSign: false }).
+ * @returns A formatted percentage string (e.g., "5.00%").
+ */
+export function formatPercentage(
+  value: number | string,
+  options: { decimals?: number; includeSign?: boolean } = {}
+): string {
+  const { decimals = 2, includeSign = false } = options;
+  const numberValue = Number(value);
+  if (isNaN(numberValue)) return '';
+  
+  const percentage = numberValue * 100;
+  const formatted = formatNumber(percentage, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  
+  return includeSign && percentage > 0 ? `+${formatted}%` : `${formatted}%`;
+}
+
+/**
  * A specialized formatter for currency values.
  * @param value - The number or string to format.
  * @param options - Additional Intl.NumberFormat options.
@@ -270,28 +293,47 @@ export function formatAssetAmountForMax(
   return formatted.replace(/\.?0+$/, '') || '0';
 }
 
-// Legacy aliases for backward compatibility
-/** @deprecated Use formatAssetBalance instead */
-export function formatWalletBalance(balance: string | number, symbol: string): string {
-  return formatAssetBalance(balance, symbol, undefined, true);
-}
-
-/** @deprecated Use formatAssetBalance instead */
-export function formatVaultAssetBalance(
-  assetAmount: number,
-  assetDecimals: number,
-  symbol: string
-): string {
-  return formatAssetBalance(assetAmount, symbol, assetDecimals, true);
-}
-
-
 /**
  * Truncates an Ethereum address for concise display.
  * @param address - The full address string.
+ * @param startLength - Number of characters to show at the start (default: 6).
+ * @param endLength - Number of characters to show at the end (default: 4).
  * @returns A truncated address string (e.g., "0x1234...5678").
  */
-export function truncateAddress(address?: Address): string {
+export function truncateAddress(
+  address?: Address,
+  startLength: number = 6,
+  endLength: number = 4
+): string {
   if (!address) return '';
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  return `${address.slice(0, startLength)}...${address.slice(-endLength)}`;
+}
+
+/**
+ * Formats a date for display in a consistent format.
+ * @param date - The date to format (Date object, timestamp, or date string).
+ * @param options - Intl.DateTimeFormat options (default: { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }).
+ * @returns A formatted date string.
+ */
+export function formatDate(
+  date: Date | number | string,
+  options: Intl.DateTimeFormatOptions = {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }
+): string {
+  const dateObj = typeof date === 'number' 
+    ? new Date(date * 1000) // Assume timestamp is in seconds
+    : typeof date === 'string'
+    ? new Date(date)
+    : date;
+  
+  if (isNaN(dateObj.getTime())) {
+    return '';
+  }
+  
+  return dateObj.toLocaleString('en-US', options);
 }

@@ -11,104 +11,8 @@ import Image from 'next/image';
 import { getVaultLogo } from '../../types/vault';
 import { formatSmartCurrency } from '../../lib/formatter';
 import { logger } from '../../lib/logger';
-
-// Helper function to check if an error is a user cancellation
-function isCancellationError(error: unknown): boolean {
-  if (!error) return false;
-  
-  const errorString = error instanceof Error ? error.message : String(error);
-  const errorLower = errorString.toLowerCase();
-
-  return (
-    errorLower.includes('user rejected') ||
-    errorLower.includes('user cancelled') ||
-    errorLower.includes('rejected') ||
-    errorLower.includes('denied') ||
-    errorLower.includes('action_cancelled') ||
-    errorLower.includes('4001') ||
-    errorLower.includes('user denied') ||
-    errorLower.includes('user rejected the request') ||
-    errorLower.includes('user rejected transaction')
-  );
-}
-
-// Helper function to convert technical errors into user-friendly messages
-function formatTransactionError(error: unknown): string {
-  if (!error) {
-    return 'Transaction failed. Please try again.';
-  }
-
-  const errorString = error instanceof Error ? error.message : String(error);
-  const errorLower = errorString.toLowerCase();
-
-  // User rejection / cancellation (should be handled separately, but keep for fallback)
-  if (isCancellationError(error)) {
-    return 'Transaction cancelled.';
-  }
-
-  // Insufficient balance
-  if (
-    errorLower.includes('insufficient') ||
-    errorLower.includes('balance too low') ||
-    errorLower.includes('execution reverted: insufficient')
-  ) {
-    return 'Insufficient balance. Please check your available funds.';
-  }
-
-  // Transaction reverted
-  if (
-    errorLower.includes('reverted') ||
-    errorLower.includes('execution reverted') ||
-    errorLower.includes('revert')
-  ) {
-    return 'Transaction was reverted. Please try again with a different amount or check your balance.';
-  }
-
-  // Network / RPC errors
-  if (
-    errorLower.includes('network') ||
-    errorLower.includes('rpc') ||
-    errorLower.includes('fetch') ||
-    errorLower.includes('timeout') ||
-    errorLower.includes('connection')
-  ) {
-    return 'Network error. Please check your connection and try again.';
-  }
-
-  // Gas / fee errors
-  if (
-    errorLower.includes('gas') ||
-    errorLower.includes('fee') ||
-    errorLower.includes('out of gas')
-  ) {
-    return 'Transaction failed due to gas estimation. Please try again.';
-  }
-
-  // Simulation state errors
-  if (
-    errorLower.includes('simulation') ||
-    errorLower.includes('bundler') ||
-    errorLower.includes('not ready')
-  ) {
-    return 'System is preparing the transaction. Please wait a moment and try again.';
-  }
-
-  // Generic transaction failure
-  if (
-    errorLower.includes('transaction failed') ||
-    errorLower.includes('failed')
-  ) {
-    return 'Transaction failed. Please try again.';
-  }
-
-  // If it's a short, readable error, use it directly
-  if (errorString.length < 100 && !errorString.includes('Error: ')) {
-    return errorString;
-  }
-
-  // Default fallback for long technical errors
-  return 'Transaction failed. Please try again.';
-}
+import { isCancellationError, formatTransactionError } from '../../lib/transactionUtils';
+import { useToast } from '../../contexts/ToastContext';
 
 export function TransactionModal() {
   const { 
@@ -124,6 +28,7 @@ export function TransactionModal() {
   
   const { morphoHoldings } = useWallet();
   const vaultDataContext = useVaultData();
+  const { success, error: showErrorToast } = useToast();
   
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
   const [prerequisiteReceipts, setPrerequisiteReceipts] = useState<Map<number, boolean>>(new Map());
@@ -287,16 +192,19 @@ export function TransactionModal() {
         setStepsInfo([]);
         setTotalSteps(0);
       } else {
-        updateTransactionStatus('error', formatTransactionError(prerequisiteReceiptError));
+        const errorMessage = formatTransactionError(prerequisiteReceiptError);
+        updateTransactionStatus('error', errorMessage);
+        showErrorToast(errorMessage, 5000);
       }
     }
-  }, [prerequisiteReceipt, prerequisiteReceiptError, currentPrerequisiteStep, updateTransactionStatus]);
+  }, [prerequisiteReceipt, prerequisiteReceiptError, currentPrerequisiteStep, updateTransactionStatus, showErrorToast]);
 
   // Handle transaction receipt - only mark as success when receipt is confirmed
   useEffect(() => {
     // Only process receipt when status is confirming and we have a receipt
     const hashToUse = currentTxHash || modalState.txHash;
     if (receipt && modalState.status === 'confirming' && hashToUse) {
+      success('Transaction confirmed!', 3000);
       updateTransactionStatus('success', undefined, hashToUse);
       setTimeout(() => {
         closeTransactionModal();
@@ -311,10 +219,12 @@ export function TransactionModal() {
         setStepsInfo([]);
         setTotalSteps(0);
       } else {
-        updateTransactionStatus('error', formatTransactionError(receiptError));
+        const errorMessage = formatTransactionError(receiptError);
+        showErrorToast(errorMessage, 5000);
+        updateTransactionStatus('error', errorMessage);
       }
     }
-  }, [receipt, receiptError, modalState.status, modalState.txHash, currentTxHash, updateTransactionStatus, closeTransactionModal]);
+  }, [receipt, receiptError, modalState.status, modalState.txHash, currentTxHash, updateTransactionStatus, closeTransactionModal, success, showErrorToast]);
 
   // Execute transaction with retry logic for allowance errors
   const handleConfirm = async () => {
@@ -434,6 +344,7 @@ export function TransactionModal() {
       });
       
       updateTransactionStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
     }
   };
 

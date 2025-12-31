@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import Image from 'next/image';
 import { getVaultLogo } from '@/types/vault';
-import { SelectedAsset } from '@/hooks/useTransactionState';
+import { SelectedAsset } from '@/types/transaction';
 import { useOnClickOutside } from '@/hooks/onClickOutside';
 
 interface AssetSelectorProps {
