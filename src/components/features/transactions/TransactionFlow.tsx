@@ -30,17 +30,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     setAmount,
   } = useTransactionState();
 
-  console.log('[TransactionFlow] Component rendered', {
-    status,
-    hasFromAccount: !!fromAccount,
-    hasToAccount: !!toAccount,
-    hasDerivedAsset: !!derivedAsset,
-    amount,
-    amountType: typeof amount,
-    amountLength: amount?.length,
-    isEmpty: !amount || amount === '',
-    transactionType,
-  });
 
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
   const [prerequisiteReceipts, setPrerequisiteReceipts] = useState<Map<number, boolean>>(new Map());
@@ -226,46 +215,23 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const isError = status === 'error';
   const isPreview = status === 'preview';
 
-  console.log('[TransactionFlow] Status checks', {
-    isPreview,
-    isSigning,
-    isApproving,
-    isConfirming,
-    isSuccess,
-    isError,
-    fromAccount: !!fromAccount,
-    toAccount: !!toAccount,
-    derivedAsset: !!derivedAsset,
-  });
-
-  // For preview state, allow rendering even if derivedAsset is not yet computed
-  // For other states, require all data
   if (!isPreview && (!fromAccount || !toAccount || !derivedAsset)) {
-    console.log('[TransactionFlow] Returning null - not preview and missing data');
     return null;
   }
 
-  // For preview, we need at least accounts to show the confirmation
   if (isPreview && (!fromAccount || !toAccount)) {
-    console.log('[TransactionFlow] Returning null - preview but missing accounts');
     return null;
   }
-
-  console.log('[TransactionFlow] Passing validation checks, will render UI');
 
   // Calculate steps for wallet progress bar (shown in confirmation modal)
   const walletSteps = (isSigning || isApproving || isConfirming || isSuccess) ? (() => {
     const effectiveTotalSteps = totalSteps > 0 ? totalSteps : (stepsInfo.length > 0 ? Math.max(...stepsInfo.map(s => s.stepIndex)) + 1 : 0);
     
     if (effectiveTotalSteps > 0) {
-      const stepArray: Array<{ label: string; completed: boolean; active: boolean }> = [];
-      
-      for (let i = 0; i < effectiveTotalSteps; i++) {
+      return Array.from({ length: effectiveTotalSteps }, (_, i) => {
         const stepInfo = stepsInfo.find(s => s.stepIndex === i);
         const isCompleted = stepInfo 
-          ? (stepInfo.type === 'confirming' 
-              ? !!receipt 
-              : !!prerequisiteReceipts.get(i))
+          ? (stepInfo.type === 'confirming' ? !!receipt : !!prerequisiteReceipts.get(i))
           : false;
         const isActive = stepInfo 
           ? ((stepInfo.type === 'signing' && isSigning) ||
@@ -273,30 +239,18 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
              (stepInfo.type === 'confirming' && isConfirming)) && !isCompleted
           : false;
         
-        let label = stepInfo?.label;
-        if (!label) {
-          const approvalSteps = stepsInfo.filter(s => s.type === 'approving').length;
-          if (i === approvalSteps && !stepInfo) {
-            label = 'Confirm';
-          } else {
-            label = `Step ${i + 1}`;
-          }
-        }
+        const label = stepInfo?.label || (i === stepsInfo.filter(s => s.type === 'approving').length ? 'Confirm' : `Step ${i + 1}`);
         
-        stepArray.push({
+        return {
           label,
           completed: isCompleted || (isSuccess && i < effectiveTotalSteps),
           active: isActive
-        });
-      }
-      
-      return stepArray;
+        };
+      });
     }
     
     if (isSuccess) {
-      return [
-        { label: 'Confirm', completed: true, active: false }
-      ];
+      return [{ label: 'Confirm', completed: true, active: false }];
     }
     
     return [
@@ -305,37 +259,37 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     ];
   })() : [];
 
-  // Calculate steps for overall transaction flow progress bar
   const transactionFlowSteps = (() => {
+    const baseSteps = [
+      { label: 'Select', completed: false, active: false },
+      { label: 'Review', completed: false, active: false },
+      { label: 'Confirmation', completed: false, active: false }
+    ];
+
     if (isSuccess) {
-      return [
-        { label: 'Select', completed: true, active: false },
-        { label: 'Review', completed: true, active: false },
-        { label: 'Confirmation', completed: true, active: false }
-      ];
+      return baseSteps.map(step => ({ ...step, completed: true }));
     }
     
     if (isPreview) {
       return [
-        { label: 'Select', completed: true, active: false },
-        { label: 'Review', completed: false, active: true },
-        { label: 'Confirmation', completed: false, active: false }
+        { ...baseSteps[0], completed: true },
+        { ...baseSteps[1], active: true },
+        baseSteps[2]
       ];
     }
     
     if (isSigning || isApproving || isConfirming) {
       return [
-        { label: 'Select', completed: true, active: false },
-        { label: 'Review', completed: true, active: true },
-        { label: 'Confirmation', completed: false, active: false }
+        { ...baseSteps[0], completed: true },
+        { ...baseSteps[1], completed: true, active: true },
+        baseSteps[2]
       ];
     }
     
-    // Idle state - user is selecting accounts/amount
     return [
-      { label: 'Select', completed: false, active: true },
-      { label: 'Review', completed: false, active: false },
-      { label: 'Confirmation', completed: false, active: false }
+      { ...baseSteps[0], active: true },
+      baseSteps[1],
+      baseSteps[2]
     ];
   })();
 
@@ -344,27 +298,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     : toAccount?.type === 'vault' 
     ? (toAccount as VaultAccount).symbol 
     : '');
-
-  console.log('[TransactionFlow] Rendering return JSX', {
-    isPreview,
-    hasFromAccount: !!fromAccount,
-    hasToAccount: !!toAccount,
-    assetSymbol,
-    willRenderConfirmation: isPreview && fromAccount && toAccount,
-    willRenderSuccess: isSuccess,
-    willRenderError: isError,
-    willRenderProgress: (isSigning || isApproving || isConfirming) && walletSteps.length > 0,
-  });
-
-  if (isPreview && fromAccount && toAccount) {
-    console.log('[TransactionFlow] Will render TransactionConfirmation', {
-      amount,
-      assetSymbol,
-      transactionType,
-      fromAccountType: fromAccount.type,
-      toAccountType: toAccount.type,
-    });
-  }
 
   return (
     <div className="space-y-6">

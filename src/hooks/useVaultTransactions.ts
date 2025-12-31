@@ -63,7 +63,7 @@ export function useVaultTransactions(vaultAddress?: string, enabled: boolean = t
   const shouldEnableSimulation = enabled && !!checksummedVaultAddress;
   
   const { 
-    simulationState, 
+    simulationState: currentSimulationState, 
     isPending: isSimulationPending, 
     error: simulationError, 
     bundler,
@@ -85,27 +85,9 @@ export function useVaultTransactions(vaultAddress?: string, enabled: boolean = t
     query: { enabled: !!checksummedVaultAddress },
   });
 
-  // Get user's ETH balance to reserve gas when wrapping
-  const { data: ethBalance } = useBalance({
-    address: accountAddress as `0x${string}`,
-    query: { enabled: !!accountAddress },
-  });
-
   // Check if this is a WETH vault by address (more reliable than waiting for assetAddress)
   // WETH vault address: 0x21e0d366272798da3A977FEBA699FCB91959d120
   const isWethVaultByAddress = checksummedVaultAddress?.toLowerCase() === '0x21e0d366272798da3A977FEBA699FCB91959d120'.toLowerCase();
-
-  // Get user's WETH balance (for WETH vaults - can deposit existing WETH directly)
-  // Fetch WETH balance if we know it's a WETH vault by address OR if assetAddress matches
-  const { data: wethBalance } = useReadContract({
-    address: BASE_WETH_ADDRESS,
-    abi: ERC20_BALANCE_ABI,
-    functionName: 'balanceOf',
-    args: accountAddress ? [accountAddress as Address] : undefined,
-    query: { 
-      enabled: !!accountAddress && (isWethVaultByAddress || (!!assetAddress && assetAddress?.toLowerCase() === BASE_WETH_ADDRESS.toLowerCase())),
-    },
-  });
 
   const executeVaultAction = useCallback(async (
     action: VaultAction,
@@ -121,7 +103,7 @@ export function useVaultTransactions(vaultAddress?: string, enabled: boolean = t
     if (!walletClient?.account?.address) {
       throw new Error('Wallet client not available.\n\nPlease ensure your wallet is connected and try again.');
     }
-    if (!simulationState) {
+    if (!currentSimulationState) {
       throw new Error('Transaction system not ready.\n\nPlease wait a moment for the system to initialize and try again.');
     }
     if (!bundler) {
@@ -132,25 +114,24 @@ export function useVaultTransactions(vaultAddress?: string, enabled: boolean = t
     }
     
     // Additional check: ensure simulation state has data
-    if (!simulationState.vaults || Object.keys(simulationState.vaults).length === 0) {
+    if (!currentSimulationState.vaults || Object.keys(currentSimulationState.vaults).length === 0) {
       throw new Error('Vault data not loaded.\n\nPlease wait for the vault information to load and try again.');
     }
 
     setIsLoading(true);
 
-    // CRITICAL: Refetch simulation state before executing to ensure we have fresh on-chain data
+    // Refetch simulation state before executing to ensure we have fresh on-chain data
     // This prevents "execution reverted" errors caused by stale simulation state
-    // The simulation state depends on the block, so refetching the block will trigger
-    // a refetch of the simulation state automatically (since staleTime is 0)
+    // The refetch function returns the fresh simulation state directly, avoiding race conditions
+    let simulationState = currentSimulationState;
     try {
       if (refetchSimulationState) {
-        await refetchSimulationState();
-        // Wait a brief moment for React Query to process the refetch and update the simulation state
-        // This ensures the simulation state has the latest on-chain data before we proceed
-        await new Promise(resolve => setTimeout(resolve, 200));
+        const freshState = await refetchSimulationState();
+        if (freshState) {
+          simulationState = freshState;
+        }
       }
     } catch (refetchError) {
-      console.warn('Failed to refetch simulation state, proceeding with cached state:', refetchError);
       // Continue with cached state - it's better than failing completely
     }
     
@@ -297,40 +278,23 @@ export function useVaultTransactions(vaultAddress?: string, enabled: boolean = t
           // 3. Have full control over the wrapping logic
           
           // Fetch fresh balances at transaction time to ensure accuracy
-          let existingWeth = BigInt(0);
-          let availableEth = BigInt(0);
-          
-          try {
-            // Fetch WETH balance directly from contract
-            if (publicClient && accountAddress) {
-              existingWeth = await publicClient.readContract({
-                address: BASE_WETH_ADDRESS,
-                abi: ERC20_BALANCE_ABI,
-                functionName: 'balanceOf',
-                args: [accountAddress as Address],
-              }) as bigint;
-            } else if (wethBalance) {
-              existingWeth = wethBalance as bigint;
-            }
-          } catch (error) {
-            console.warn('Failed to fetch WETH balance, using cached value:', error);
-            existingWeth = (wethBalance as bigint) || BigInt(0);
+          // Using publicClient ensures we get the state at the moment the button was clicked
+          if (!publicClient || !accountAddress) {
+            throw new Error('Public client not available');
           }
+          
+          // Fetch WETH balance directly from contract
+          const existingWeth = await publicClient.readContract({
+            address: BASE_WETH_ADDRESS,
+            abi: ERC20_BALANCE_ABI,
+            functionName: 'balanceOf',
+            args: [accountAddress as Address],
+          }) as bigint;
           
           // Fetch fresh ETH balance
-          try {
-            if (publicClient && accountAddress) {
-              const freshEthBalance = await publicClient.getBalance({
-                address: accountAddress as Address,
-              });
-              availableEth = freshEthBalance;
-            } else {
-              availableEth = ethBalance?.value || BigInt(0);
-            }
-          } catch (error) {
-            console.warn('Failed to fetch ETH balance, using cached value:', error);
-            availableEth = ethBalance?.value || BigInt(0);
-          }
+          const availableEth = await publicClient.getBalance({
+            address: accountAddress as Address,
+          });
           
           // Estimate gas needed for wrapping ETH (if we need to wrap)
           // A typical WETH wrap + deposit via bundler costs around 0.00005-0.0001 ETH
@@ -599,12 +563,11 @@ export function useVaultTransactions(vaultAddress?: string, enabled: boolean = t
     publicClient,
     bundler, 
     accountAddress,
-    simulationState,
+    currentSimulationState,
     isSimulationPending,
     assetAddress,
-    ethBalance,
-    wethBalance,
-    vaultDataContext
+    vaultDataContext,
+    refetchSimulationState
   ]);
 
   return {

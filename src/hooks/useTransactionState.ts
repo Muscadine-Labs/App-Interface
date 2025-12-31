@@ -75,22 +75,12 @@ export function useTransactionState() {
   }, []);
 
   const setStatus = useCallback((status: TransactionStatus, error?: string | null, txHash?: string | null) => {
-    console.log('[useTransactionState] setStatus called', { status, error, txHash });
-    setState(prev => {
-      const newState = {
-        ...prev,
-        status,
-        error: error ?? null,
-        txHash: txHash ?? null,
-      };
-      console.log('[useTransactionState] State updated', { 
-        oldStatus: prev.status, 
-        newStatus: newState.status,
-        fromAccount: newState.fromAccount,
-        toAccount: newState.toAccount,
-      });
-      return newState;
-    });
+    setState(prev => ({
+      ...prev,
+      status,
+      error: error ?? null,
+      txHash: txHash ?? null,
+    }));
   }, []);
 
   const reset = useCallback(() => {

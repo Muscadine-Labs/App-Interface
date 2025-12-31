@@ -77,42 +77,16 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const setAmount = useCallback((amount: string) => {
-    console.log('[TransactionContext] setAmount called', {
-      amount,
-      amountType: typeof amount,
-      amountLength: amount?.length,
-      isEmpty: !amount || amount === '',
-    });
-    setState(prev => {
-      const newState = { ...prev, amount };
-      console.log('[TransactionContext] Amount updated', {
-        oldAmount: prev.amount,
-        newAmount: newState.amount,
-      });
-      return newState;
-    });
+    setState(prev => ({ ...prev, amount }));
   }, []);
 
   const setStatus = useCallback((status: TransactionStatus, error?: string | null, txHash?: string | null) => {
-    console.log('[TransactionContext] setStatus called', { status, error, txHash });
-    setState(prev => {
-      const newState = {
-        ...prev,
-        status,
-        error: error ?? null,
-        txHash: txHash ?? null,
-      };
-      console.log('[TransactionContext] State updated', { 
-        oldStatus: prev.status, 
-        newStatus: newState.status,
-        fromAccount: newState.fromAccount,
-        toAccount: newState.toAccount,
-        amount: newState.amount,
-        amountType: typeof newState.amount,
-        isEmpty: !newState.amount || newState.amount === '',
-      });
-      return newState;
-    });
+    setState(prev => ({
+      ...prev,
+      status,
+      error: error ?? null,
+      txHash: txHash ?? null,
+    }));
   }, []);
 
   const reset = useCallback(() => {

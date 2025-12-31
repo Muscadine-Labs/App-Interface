@@ -99,9 +99,11 @@ export function TransactionConfirmation({
         <div className="mb-6">
           <div className="space-y-4">
             {txHash && (
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm text-[var(--foreground-secondary)] mb-1">Transaction hash</p>
-                <CopiableAddress address={txHash} showFullAddress={true} className="text-sm font-medium" />
+                <div className="break-all text-left">
+                  <CopiableAddress address={txHash} showFullAddress={true} className="text-sm font-medium break-all text-left" />
+                </div>
               </div>
             )}
             <div>
@@ -112,35 +114,43 @@ export function TransactionConfirmation({
               <p className="text-sm text-[var(--foreground-secondary)] mb-1">Type</p>
               <p className="text-sm font-medium text-[var(--foreground)]">{getTransactionTypeLabel()}</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-[var(--foreground-secondary)] mb-1">From</p>
               {fromAccount.type === 'wallet' ? (
                 <>
                   <p className="text-sm font-medium text-[var(--foreground)] mb-1">Wallet</p>
                   {address && (
-                    <CopiableAddress address={address} showFullAddress={true} className="text-sm font-medium" />
+                    <div className="break-all text-left">
+                      <CopiableAddress address={address} showFullAddress={true} className="text-sm font-medium break-all text-left" />
+                    </div>
                   )}
                 </>
               ) : (
                 <>
                   <p className="text-sm font-medium text-[var(--foreground)] mb-1">{(fromAccount as VaultAccount).name}</p>
-                  <CopiableAddress address={(fromAccount as VaultAccount).address} showFullAddress={true} className="text-sm font-medium" />
+                  <div className="break-all text-left">
+                    <CopiableAddress address={(fromAccount as VaultAccount).address} showFullAddress={true} className="text-sm font-medium break-all text-left" />
+                  </div>
                 </>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-[var(--foreground-secondary)] mb-1">To</p>
               {toAccount.type === 'wallet' ? (
                 <>
                   <p className="text-sm font-medium text-[var(--foreground)] mb-1">Wallet</p>
                   {address && (
-                    <CopiableAddress address={address} showFullAddress={true} className="text-sm font-medium" />
+                    <div className="break-all text-left">
+                      <CopiableAddress address={address} showFullAddress={true} className="text-sm font-medium break-all text-left" />
+                    </div>
                   )}
                 </>
               ) : (
                 <>
                   <p className="text-sm font-medium text-[var(--foreground)] mb-1">{(toAccount as VaultAccount).name}</p>
-                  <CopiableAddress address={(toAccount as VaultAccount).address} showFullAddress={true} className="text-sm font-medium" />
+                  <div className="break-all text-left">
+                    <CopiableAddress address={(toAccount as VaultAccount).address} showFullAddress={true} className="text-sm font-medium break-all text-left" />
+                  </div>
                 </>
               )}
             </div>

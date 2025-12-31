@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { useBlock, useAccount, useReadContract, useReadContracts, useBalance } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   getChainAddresses,
   NATIVE_ADDRESS,
@@ -96,7 +97,7 @@ export const useVaultSimulationState = (
   const shouldFetch = enabled && !!vaultAddress && !!address;
 
   // Fetch native ETH balance to ensure it's available for wrapping
-  const { data: nativeBalance } = useBalance({
+  const { data: nativeBalance, refetch: refetchNativeBalance } = useBalance({
     address: address as Address,
     chainId: BASE_CHAIN_ID,
     query: {
@@ -278,23 +279,24 @@ export const useVaultSimulationState = (
     simulation.error as SimulationError | Error | null | undefined
   );
 
-    // Manually ensure native ETH balance is in holdings if simulation state exists
-    // This is needed because useSimulationState might not always fetch native balances correctly
-    // Create a new object with the same prototype to preserve methods while allowing mutations
-    const enhancedSimulationState = useMemo(() => {
-      if (!simulation.data || !address) {
-        return simulation.data;
-      }
+  // Helper function to enhance simulation state with native ETH balance
+  // This can be called outside the hook to enhance fresh refetched data
+  const enhanceSimulationStateWithNativeBalance = useCallback((
+    simData: typeof simulation.data,
+    userAddress: Address | undefined,
+    ethBalance: typeof nativeBalance
+  ) => {
+    if (!simData || !userAddress) {
+      return simData;
+    }
 
-      // If nativeBalance is not available yet, return original state
-    // (it will be updated when nativeBalance is available)
-    if (!nativeBalance) {
-      return simulation.data;
+    if (!ethBalance) {
+      return simData;
     }
 
     // Create a new object with the same prototype to preserve methods
-    const state = Object.create(Object.getPrototypeOf(simulation.data));
-    Object.assign(state, simulation.data);
+    const state = Object.create(Object.getPrototypeOf(simData));
+    Object.assign(state, simData);
     
     // Ensure holdings object exists
     if (!state.holdings) {
@@ -302,21 +304,20 @@ export const useVaultSimulationState = (
     }
     
     // Ensure user's holdings object exists
-    if (!state.holdings[address]) {
-      state.holdings[address] = {};
+    if (!state.holdings[userAddress]) {
+      state.holdings[userAddress] = {};
     }
     
-        // Always update native balance to ensure bundler sees it for wrapping
-    // This ensures the bundler knows about native ETH for wrapping
-    const userHoldings = state.holdings[address];
+    // Always update native balance to ensure bundler sees it for wrapping
+    const userHoldings = state.holdings[userAddress];
     const nativeAddress = NATIVE_ADDRESS as `0x${string}`;
     
     // Always update/create the native holding with the current balance
     const existing = userHoldings[nativeAddress];
     userHoldings[nativeAddress] = new Holding({
-      user: address as `0x${string}`,
+      user: userAddress,
       token: nativeAddress,
-      balance: nativeBalance.value,
+      balance: ethBalance.value,
       erc20Allowances: existing?.erc20Allowances || {
         morpho: BigInt(0),
         permit2: BigInt(0),
@@ -328,7 +329,12 @@ export const useVaultSimulationState = (
     });
     
     return state;
-  }, [simulation.data, address, nativeBalance]);
+  }, []);
+
+  // Manually ensure native ETH balance is in holdings if simulation state exists
+  const enhancedSimulationState = useMemo(() => {
+    return enhanceSimulationStateWithNativeBalance(simulation.data, address, nativeBalance);
+  }, [simulation.data, address, nativeBalance, enhanceSimulationStateWithNativeBalance]);
 
   return {
     simulationState: enhancedSimulationState,
@@ -337,8 +343,47 @@ export const useVaultSimulationState = (
     bundler,
     refetch: async () => {
       // Refetch block first to ensure we have the latest block
-      // The simulation state will automatically update when the block changes
       await refetchBlock();
+      
+      // Refetch native balance to get fresh ETH balance
+      const nativeBalanceResult = await refetchNativeBalance();
+      
+      // Try to access refetch method directly (may not be in types but exists at runtime)
+      // React Query hooks typically expose refetch that returns { data, error }
+      let freshSimulationData = simulation.data;
+      
+      if ('refetch' in simulation && typeof (simulation as any).refetch === 'function') {
+        try {
+          const result = await (simulation as any).refetch();
+          if (result?.data) {
+            freshSimulationData = result.data;
+          }
+        } catch {
+          // If refetch fails, use current data
+        }
+      } else {
+        // Fallback: invalidate query and wait for refetch
+        // The simulation will auto-refetch when block changes (staleTime: 0)
+        await queryClient.invalidateQueries({
+          predicate: (query) => {
+            // Match simulation-related queries
+            const key = query.queryKey;
+            return Array.isArray(key) && key.some(k => 
+              typeof k === 'string' && (k.includes('simulation') || k.includes('Simulation'))
+            );
+          },
+        });
+        // Wait for refetch to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+        freshSimulationData = simulation.data;
+      }
+      
+      // Enhance the fresh simulation state with native balance and return it
+      return enhanceSimulationStateWithNativeBalance(
+        freshSimulationData,
+        address,
+        nativeBalanceResult.data || nativeBalance
+      );
     },
     config: {
       users,

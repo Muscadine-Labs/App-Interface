@@ -121,14 +121,69 @@ export default function TransactionsPage() {
     const ethBal = parseFloat(ethBalance || '0');
     const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
     const wethBal = wethToken ? parseFloat(wethToken.formatted || '0') : 0;
-    
-    // Reserve gas fees when wrapping
-    // For larger amounts, reserve 0.0001 ETH; for small amounts, reserve less
     const gasReserve = ethBal > 0.0001 ? 0.0001 : (ethBal > 0.00005 ? 0.00005 : 0);
     const wrappableEth = ethBal > gasReserve ? ethBal - gasReserve : 0;
-    
-    // Total available: existing WETH + wrappable ETH (ETH that can actually be wrapped)
     return wethBal + wrappableEth;
+  };
+
+  // Helper function to get wallet balance display text
+  const getWalletBalanceText = (): string => {
+    if (!derivedAsset) return '';
+    
+    if (toAccount?.type === 'vault') {
+      const toVault = toAccount as VaultAccount;
+      const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase();
+      
+      if (isWethVault && (derivedAsset.symbol === 'WETH' || derivedAsset.symbol === 'ETH')) {
+        const combinedBal = getCombinedEthWethBalance();
+        const ethBal = parseFloat(ethBalance || '0');
+        const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
+        const wethBal = wethToken ? parseFloat(wethToken.formatted || '0') : 0;
+        
+        if (wethBal > 0 && ethBal > 0) {
+          return `Available: ${formatAvailableBalance(combinedBal, 'WETH')} (${formatAvailableBalance(wethBal, 'WETH')} WETH + ${formatAvailableBalance(ethBal, 'ETH')} wrappable)`;
+        } else if (wethBal > 0) {
+          return formatAvailableBalance(wethBal, 'WETH');
+        } else if (ethBal > 0) {
+          return `Available: ${formatAvailableBalance(ethBal, 'ETH')} (wrappable to WETH)`;
+        }
+        return formatAvailableBalance('0', 'WETH');
+      }
+    }
+    
+    if (derivedAsset.symbol === 'ETH' || derivedAsset.symbol === 'WETH') {
+      return formatAvailableBalance(ethBalance || '0', derivedAsset.symbol);
+    }
+    
+    const token = tokenBalances.find((t) => t.symbol.toUpperCase() === derivedAsset.symbol.toUpperCase());
+    return formatAvailableBalance(token?.formatted || '0', derivedAsset.symbol);
+  };
+
+  // Helper function to get vault balance display text
+  const getVaultBalanceText = (): string => {
+    if (!fromAccount || fromAccount.type !== 'vault' || !derivedAsset) return '';
+    
+    const vaultAccount = fromAccount as VaultAccount;
+    const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
+    const position = morphoHoldings.positions.find(
+      (pos) => pos.vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
+    );
+
+    if (position && vaultData) {
+      let assetAmount: number | null = null;
+      
+      if (position.assets) {
+        assetAmount = parseFloat(position.assets) / Math.pow(10, vaultData.assetDecimals || 18);
+      } else if (withdrawableAssetsBigInt !== undefined) {
+        assetAmount = parseFloat(formatUnits(withdrawableAssetsBigInt, vaultData.assetDecimals || 18));
+      }
+      
+      if (assetAmount !== null) {
+        return formatAvailableBalance(assetAmount, derivedAsset.symbol, vaultData.assetDecimals || 18);
+      }
+    }
+    
+    return `Available: 0.00 ${derivedAsset.symbol}`;
   };
 
   // Get max amount as a number for validation
@@ -137,11 +192,9 @@ export default function TransactionsPage() {
 
     if (fromAccount.type === 'wallet') {
       const symbol = derivedAsset.symbol;
-      // For WETH vault deposits, combine ETH + WETH balances
       if (toAccount?.type === 'vault') {
         const toVault = toAccount as VaultAccount;
         const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase();
-        
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
           return getCombinedEthWethBalance();
         }
@@ -149,26 +202,21 @@ export default function TransactionsPage() {
       
       if (symbol === 'WETH' || symbol === 'ETH') {
         return parseFloat(ethBalance || '0');
-      } else {
-        const token = tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
-        if (token) {
-          const decimals = token.decimals;
-          return parseFloat(formatUnits(token.balance, decimals));
-        }
+      }
+      
+      const token = tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
+      if (token) {
+        return parseFloat(formatUnits(token.balance, token.decimals));
       }
     } else {
-      // For vault withdrawals, use position.assets or convertToAssets contract call
       const vaultAccount = fromAccount as VaultAccount;
       const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
       const position = vaultPosition;
 
       if (position && vaultData) {
-        // First priority: Use position.assets if available (from GraphQL)
         if (position.assets) {
           return parseFloat(position.assets) / Math.pow(10, vaultData.assetDecimals || 18);
-        } 
-        // Second priority: Use convertToAssets contract call result
-        else if (withdrawableAssetsBigInt !== undefined) {
+        } else if (withdrawableAssetsBigInt !== undefined) {
           return parseFloat(formatUnits(withdrawableAssetsBigInt, vaultData.assetDecimals || 18));
         }
       }
@@ -178,55 +226,24 @@ export default function TransactionsPage() {
 
   // Calculate max amount for the selected "from" account
   const calculateMaxAmount = () => {
-    if (!fromAccount || !derivedAsset) return;
+    const maxAmount = getMaxAmount();
+    if (maxAmount === null) return;
 
-    if (fromAccount.type === 'wallet') {
-      const symbol = derivedAsset.symbol;
-      // For WETH vault deposits, combine ETH + WETH balances
-      if (toAccount?.type === 'vault') {
-        const toVault = toAccount as VaultAccount;
-        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase();
-        
-        if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
-          const combinedBal = getCombinedEthWethBalance();
-          setAmount(combinedBal > 0 ? formatAssetAmountForMax(combinedBal, 'WETH') : '0');
-          return;
-        }
-      }
-      
+    if (fromAccount?.type === 'wallet') {
+      const symbol = derivedAsset?.symbol || '';
       if (symbol === 'WETH' || symbol === 'ETH') {
-        const ethBal = parseFloat(ethBalance || '0');
-        setAmount(ethBal > 0 ? formatAssetAmountForMax(ethBal, symbol) : '0');
+        setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol) : '0');
       } else {
         const token = tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
         if (token) {
-          const decimals = token.decimals;
-          setAmount(formatBigIntForInput(token.balance, decimals));
+          setAmount(formatBigIntForInput(token.balance, token.decimals));
         }
       }
     } else {
-      // For vault withdrawals, use position.assets or convertToAssets contract call
       const vaultAccount = fromAccount as VaultAccount;
       const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
-      const position = vaultPosition;
-
-      if (position && vaultData) {
-        let assetAmount: number | null = null;
-        
-        // First priority: Use position.assets if available (from GraphQL)
-        if (position.assets) {
-          assetAmount = parseFloat(position.assets) / Math.pow(10, vaultData.assetDecimals || 18);
-        } 
-        // Second priority: Use convertToAssets contract call result
-        else if (withdrawableAssetsBigInt !== undefined) {
-          assetAmount = parseFloat(formatUnits(withdrawableAssetsBigInt, vaultData.assetDecimals || 18));
-        }
-        
-        if (assetAmount !== null) {
-          const decimals = vaultData.assetDecimals || 18;
-          setAmount(formatAssetAmountForMax(assetAmount, derivedAsset.symbol, decimals));
-        }
-      }
+      const decimals = vaultData?.assetDecimals || 18;
+      setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
     }
   };
 
@@ -258,26 +275,8 @@ export default function TransactionsPage() {
   };
 
   const handleStartTransaction = () => {
-    console.log('[TransactionsPage] handleStartTransaction called', {
-      fromAccount: fromAccount?.type === 'wallet' ? 'wallet' : (fromAccount as VaultAccount)?.name,
-      toAccount: toAccount?.type === 'wallet' ? 'wallet' : (toAccount as VaultAccount)?.name,
-      derivedAsset,
-      amount,
-      amountType: typeof amount,
-      amountLength: amount?.length,
-      isEmpty: !amount || amount === '',
-      parseFloatAmount: amount ? parseFloat(amount) : null,
-    });
     if (fromAccount && toAccount && derivedAsset) {
-      console.log('[TransactionsPage] Setting status to preview with amount:', amount);
       setStatus('preview');
-    } else {
-      console.log('[TransactionsPage] Missing required data:', {
-        hasFromAccount: !!fromAccount,
-        hasToAccount: !!toAccount,
-        hasDerivedAsset: !!derivedAsset,
-        amount,
-      });
     }
   };
 
@@ -301,37 +300,37 @@ export default function TransactionsPage() {
     );
   }
 
-  // Calculate progress bar steps based on status
   const getProgressSteps = () => {
+    const baseSteps = [
+      { label: 'Select', completed: false, active: false },
+      { label: 'Review', completed: false, active: false },
+      { label: 'Confirmation', completed: false, active: false }
+    ];
+
     if (status === 'success') {
-      return [
-        { label: 'Select', completed: true, active: false },
-        { label: 'Review', completed: true, active: false },
-        { label: 'Confirmation', completed: true, active: false }
-      ];
+      return baseSteps.map(step => ({ ...step, completed: true }));
     }
     
     if (status === 'preview') {
       return [
-        { label: 'Select', completed: true, active: false },
-        { label: 'Review', completed: false, active: true },
-        { label: 'Confirmation', completed: false, active: false }
+        { ...baseSteps[0], completed: true },
+        { ...baseSteps[1], active: true },
+        baseSteps[2]
       ];
     }
     
     if (status === 'signing' || status === 'approving' || status === 'confirming') {
       return [
-        { label: 'Select', completed: true, active: false },
-        { label: 'Review', completed: false, active: true },
-        { label: 'Confirmation', completed: false, active: false }
+        { ...baseSteps[0], completed: true },
+        { ...baseSteps[1], active: true },
+        baseSteps[2]
       ];
     }
     
-    // Idle state - user is selecting accounts/amount
     return [
-      { label: 'Select', completed: false, active: true },
-      { label: 'Review', completed: false, active: false },
-      { label: 'Confirmation', completed: false, active: false }
+      { ...baseSteps[0], active: true },
+      baseSteps[1],
+      baseSteps[2]
     ];
   };
 
@@ -408,153 +407,48 @@ export default function TransactionsPage() {
                 />
                 {/* Dollar amount display for BTC/ETH vault transactions - inside input */}
                 {(() => {
-                  try {
-                    // Early checks - return null for invalid states (not errors)
-                    if (!fromAccount || !toAccount || !derivedAsset || !amount) return null;
-                    
-                    const amountNum = parseFloat(amount);
-                    if (isNaN(amountNum) || amountNum <= 0) return null;
-                    
-                    // Determine which vault we're dealing with (could be from or to)
-                    let vaultAddress: string | null = null;
-                    if (toAccount.type === 'vault') {
-                      const toVault = toAccount as VaultAccount;
-                      if (toVault.address) {
-                        vaultAddress = toVault.address.toLowerCase();
-                      }
-                    } else if (fromAccount.type === 'vault') {
-                      const fromVault = fromAccount as VaultAccount;
-                      if (fromVault.address) {
-                        vaultAddress = fromVault.address.toLowerCase();
-                      }
-                    }
-                    
-                    // If no vault address found, no dollar estimate needed
-                    if (!vaultAddress) return null;
-                    
-                    const btcVaultAddress = VAULTS.cbBTC_VAULT.address.toLowerCase();
-                    const wethVaultAddress = VAULTS.WETH_VAULT.address.toLowerCase();
-                    const isBtcVault = vaultAddress === btcVaultAddress;
-                    const isWethVault = vaultAddress === wethVaultAddress;
-                    
-                    // Check if this is a BTC vault transaction
-                    if (isBtcVault) {
-                      if (!btcPrice || typeof btcPrice !== 'number' || btcPrice <= 0) {
-                        console.warn('[Dollar Estimate] BTC vault detected but price not available', { btcPrice });
-                        return null;
-                      }
-                      
-                      const dollarAmount = amountNum * btcPrice;
-                      if (isNaN(dollarAmount) || dollarAmount <= 0) {
-                        console.warn('[Dollar Estimate] BTC vault - invalid calculation', { amountNum, btcPrice, dollarAmount });
-                        return null;
-                      }
-                      
-                      console.log('[Dollar Estimate] BTC vault - showing estimate', { amountNum, btcPrice, dollarAmount });
-                      return (
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                          <span className="text-sm text-[var(--foreground-muted)]">
-                            ≈ ${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      );
-                    }
-                    
-                    // Check if this is an ETH/WETH vault transaction
-                    if (isWethVault) {
-                      if (!ethPrice || typeof ethPrice !== 'number' || ethPrice <= 0) {
-                        console.warn('[Dollar Estimate] WETH vault detected but price not available', { ethPrice });
-                        return null;
-                      }
-                      
-                      const dollarAmount = amountNum * ethPrice;
-                      if (isNaN(dollarAmount) || dollarAmount <= 0) {
-                        console.warn('[Dollar Estimate] WETH vault - invalid calculation', { amountNum, ethPrice, dollarAmount });
-                        return null;
-                      }
-                      
-                      console.log('[Dollar Estimate] WETH vault - showing estimate', { amountNum, ethPrice, dollarAmount });
-                      return (
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                          <span className="text-sm text-[var(--foreground-muted)]">
-                            ≈ ${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      );
-                    }
-                    
-                    // Not a BTC or WETH vault - no dollar estimate needed
-                    return null;
-                  } catch (error) {
-                    console.error('[Dollar Estimate Error]', error);
-                    // In development, you might want to show the error in the UI
-                    // For now, just log it and return null
-                    return null;
+                  if (!fromAccount || !toAccount || !derivedAsset || !amount) return null;
+                  
+                  const amountNum = parseFloat(amount);
+                  if (isNaN(amountNum) || amountNum <= 0) return null;
+                  
+                  const vaultAddress = (toAccount.type === 'vault' 
+                    ? (toAccount as VaultAccount).address 
+                    : fromAccount.type === 'vault' 
+                    ? (fromAccount as VaultAccount).address 
+                    : null)?.toLowerCase();
+                  
+                  if (!vaultAddress) return null;
+                  
+                  const btcVaultAddress = VAULTS.cbBTC_VAULT.address.toLowerCase();
+                  const wethVaultAddress = VAULTS.WETH_VAULT.address.toLowerCase();
+                  const isBtcVault = vaultAddress === btcVaultAddress;
+                  const isWethVault = vaultAddress === wethVaultAddress;
+                  
+                  let price: number | null = null;
+                  if (isBtcVault && btcPrice && typeof btcPrice === 'number' && btcPrice > 0) {
+                    price = btcPrice;
+                  } else if (isWethVault && ethPrice && typeof ethPrice === 'number' && ethPrice > 0) {
+                    price = ethPrice;
                   }
+                  
+                  if (!price) return null;
+                  
+                  const dollarAmount = amountNum * price;
+                  if (isNaN(dollarAmount) || dollarAmount <= 0) return null;
+                  
+                  return (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                      <span className="text-sm text-[var(--foreground-muted)]">
+                        ≈ ${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  );
                 })()}
               </div>
               {fromAccount && derivedAsset && (
                 <p className="text-xs text-[var(--foreground-muted)]">
-                  {fromAccount.type === 'wallet' 
-                    ? (() => {
-                        // For WETH vault deposits, show combined ETH + WETH balance
-                        if (toAccount?.type === 'vault') {
-                          const toVault = toAccount as VaultAccount;
-                          const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase();
-                          
-                          if (isWethVault && (derivedAsset.symbol === 'WETH' || derivedAsset.symbol === 'ETH')) {
-                            const combinedBal = getCombinedEthWethBalance();
-                            const ethBal = parseFloat(ethBalance || '0');
-                            const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
-                            const wethBal = wethToken ? parseFloat(wethToken.formatted || '0') : 0;
-                            
-                            // Format the combined balance display
-                            if (wethBal > 0 && ethBal > 0) {
-                              return `Available: ${formatAvailableBalance(combinedBal, 'WETH')} (${formatAvailableBalance(wethBal, 'WETH')} WETH + ${formatAvailableBalance(ethBal, 'ETH')} wrappable)`;
-                            } else if (wethBal > 0) {
-                              return formatAvailableBalance(wethBal, 'WETH');
-                            } else if (ethBal > 0) {
-                              return `Available: ${formatAvailableBalance(ethBal, 'ETH')} (wrappable to WETH)`;
-                            } else {
-                              return formatAvailableBalance('0', 'WETH');
-                            }
-                          }
-                        }
-                        
-                        if (derivedAsset.symbol === 'ETH' || derivedAsset.symbol === 'WETH') {
-                          return formatAvailableBalance(ethBalance || '0', derivedAsset.symbol);
-                        } else {
-                          const token = tokenBalances.find((t) => t.symbol.toUpperCase() === derivedAsset.symbol.toUpperCase());
-                          return formatAvailableBalance(token?.formatted || '0', derivedAsset.symbol);
-                        }
-                      })()
-                    : (() => {
-                        // For vault, use position.assets or convertToAssets contract call
-                        const vaultAccount = fromAccount as VaultAccount;
-                        const vaultData = vaultDataContext.getVaultData(vaultAccount.address);
-                        const position = morphoHoldings.positions.find(
-                          (pos) => pos.vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
-                        );
-
-                        if (position && vaultData) {
-                          let assetAmount: number | null = null;
-                          
-                          // First priority: Use position.assets if available (from GraphQL)
-                          if (position.assets) {
-                            assetAmount = parseFloat(position.assets) / Math.pow(10, vaultData.assetDecimals || 18);
-                          }
-                          // Second priority: Use convertToAssets contract call result (if available)
-                          else if (withdrawableAssetsBigInt !== undefined && fromAccount.type === 'vault' && (fromAccount as VaultAccount).address.toLowerCase() === vaultAccount.address.toLowerCase()) {
-                            assetAmount = parseFloat(formatUnits(withdrawableAssetsBigInt, vaultData.assetDecimals || 18));
-                          }
-                          
-                          if (assetAmount !== null) {
-                            return formatAvailableBalance(assetAmount, derivedAsset.symbol, vaultData.assetDecimals || 18);
-                          }
-                        }
-                        return `Available: 0.00 ${derivedAsset.symbol}`;
-                      })()
-                  }
+                  {fromAccount.type === 'wallet' ? getWalletBalanceText() : getVaultBalanceText()}
                 </p>
               )}
             </div>
@@ -590,13 +484,7 @@ export default function TransactionsPage() {
       )}
 
       {/* Transaction Flow (Preview, Progress, Success, Error) */}
-      {(() => {
-        const shouldRenderFlow = status === 'preview' || status === 'signing' || status === 'approving' || status === 'confirming' || status === 'success' || status === 'error';
-        if (shouldRenderFlow) {
-          console.log('[TransactionsPage] Rendering TransactionFlow with status:', status);
-        }
-        return shouldRenderFlow;
-      })() && (
+      {(status === 'preview' || status === 'signing' || status === 'approving' || status === 'confirming' || status === 'success' || status === 'error') && (
         <>
           <TransactionFlow
             onSuccess={() => {
