@@ -484,6 +484,30 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     return domain || [0, 100];
   }, [filteredChartData]);
 
+  // Get ticks for 7D period - show every day
+  const get7DTicks = useMemo(() => {
+    if (selectedTimeFrame !== '7D' || filteredChartData.length === 0) return undefined;
+    
+    const ticks: number[] = [];
+    const seenDates = new Set<string>();
+    
+    // Sort data by timestamp to ensure chronological order
+    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
+    
+    sortedData.forEach((point) => {
+      const date = new Date(point.timestamp * 1000);
+      const dateKey = date.toDateString();
+      
+      // Add tick for each day
+      if (!seenDates.has(dateKey)) {
+        ticks.push(point.timestamp);
+        seenDates.add(dateKey);
+      }
+    });
+    
+    return ticks.length > 0 ? ticks : undefined;
+  }, [selectedTimeFrame, filteredChartData]);
+
   // Get ticks for 30D period - every 2 days
   const get30DTicks = useMemo(() => {
     if (selectedTimeFrame !== '30D' || filteredChartData.length === 0) return undefined;
@@ -533,6 +557,85 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
         seenDates.add(dateKey);
         // Add every 5 days (dayCount: 0, 5, 10, 15...)
         if (dayCount % 5 === 0) {
+          ticks.push(point.timestamp);
+        }
+        dayCount++;
+      }
+    });
+    
+    return ticks.length > 0 ? ticks : undefined;
+  }, [selectedTimeFrame, filteredChartData]);
+
+  // Get ticks for 1Y period - every 30 days
+  const get1YTicks = useMemo(() => {
+    if (selectedTimeFrame !== '1Y' || filteredChartData.length === 0) return undefined;
+    
+    const ticks: number[] = [];
+    const seenDates = new Set<string>();
+    let dayCount = 0;
+    
+    // Sort data by timestamp to ensure chronological order
+    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
+    
+    sortedData.forEach((point) => {
+      const date = new Date(point.timestamp * 1000);
+      const dateKey = date.toDateString();
+      
+      // Only add tick if we haven't seen this date before
+      if (!seenDates.has(dateKey)) {
+        seenDates.add(dateKey);
+        // Add every 30 days (dayCount: 0, 30, 60, 90...)
+        if (dayCount % 30 === 0) {
+          ticks.push(point.timestamp);
+        }
+        dayCount++;
+      }
+    });
+    
+    return ticks.length > 0 ? ticks : undefined;
+  }, [selectedTimeFrame, filteredChartData]);
+
+  // Get ticks for "all" period - dynamic intervals based on data range
+  const getAllTicks = useMemo(() => {
+    if (selectedTimeFrame !== 'all' || filteredChartData.length === 0) return undefined;
+    
+    const ticks: number[] = [];
+    const seenDates = new Set<string>();
+    
+    // Sort data by timestamp to ensure chronological order
+    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
+    
+    if (sortedData.length === 0) return undefined;
+    
+    // Calculate total time span in days
+    const firstTimestamp = sortedData[0].timestamp;
+    const lastTimestamp = sortedData[sortedData.length - 1].timestamp;
+    const totalDays = (lastTimestamp - firstTimestamp) / (24 * 60 * 60);
+    
+    // Determine interval based on total days
+    let dayInterval = 3;
+    if (totalDays > 365) {
+      dayInterval = 30; // Every 30 days for very long spans
+    } else if (totalDays > 180) {
+      dayInterval = 12; // Every 12 days for long spans
+    } else if (totalDays > 90) {
+      dayInterval = 10; // Every 10 days for medium-long spans
+    } else if (totalDays > 60) {
+      dayInterval = 7; // Every 7 days for medium spans
+    } else if (totalDays > 30) {
+      dayInterval = 5; // Every 5 days for shorter spans
+    } else {
+      dayInterval = 3; // Every 3 days for very short spans
+    }
+    
+    let dayCount = 0;
+    sortedData.forEach((point) => {
+      const date = new Date(point.timestamp * 1000);
+      const dateKey = date.toDateString();
+      
+      if (!seenDates.has(dateKey)) {
+        seenDates.add(dateKey);
+        if (dayCount % dayInterval === 0) {
           ticks.push(point.timestamp);
         }
         dayCount++;
@@ -705,7 +808,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                       interval="preserveStartEnd"
-                      ticks={selectedTimeFrame === '30D' ? get30DTicks : selectedTimeFrame === '90D' ? get90DTicks : undefined}
+                      ticks={selectedTimeFrame === '7D' ? get7DTicks : selectedTimeFrame === '30D' ? get30DTicks : selectedTimeFrame === '90D' ? get90DTicks : selectedTimeFrame === '1Y' ? get1YTicks : selectedTimeFrame === 'all' ? getAllTicks : undefined}
                     />
                     <YAxis 
                       domain={yAxisDomain}
