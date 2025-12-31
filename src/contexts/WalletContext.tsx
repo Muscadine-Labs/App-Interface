@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useAccount } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance, MorphoUserVaultPositions, MorphoVaultPosition, GraphQLResponse } from '@/types/api';
+import { formatCurrency } from '@/lib/formatter';
 
 interface TokenBalance {
   address: string;
@@ -592,22 +593,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const value: WalletContextType = {
     ethBalance: ethBalance?.formatted || '0',
-    ethUsdValue: ethUsdValue.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }),
-    totalUsdValue: totalUsdValue.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }),
-    liquidUsdValue: liquidUsdValue.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }),
-    morphoUsdValue: morphoHoldings.totalValueUsd.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }),
+    ethUsdValue: formatCurrency(ethUsdValue),
+    totalUsdValue: formatCurrency(totalUsdValue),
+    liquidUsdValue: formatCurrency(liquidUsdValue),
+    morphoUsdValue: formatCurrency(morphoHoldings.totalValueUsd),
     tokenBalances, // Now includes all major tokens with non-zero balances
     morphoHoldings,
     loading,

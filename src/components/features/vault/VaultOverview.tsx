@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber, formatCurrency } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
+import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 interface VaultOverviewProps {
@@ -35,6 +36,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<'apy' | 'tvl'>('apy');
   const [valueType, setValueType] = useState<'usd' | 'token'>('usd');
+  const { error: showErrorToast } = useToast();
 
   // Format liquidity
   const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity);
@@ -45,7 +47,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   );
 
   // Format APY
-  const apyPercent = (vaultData.apy * 100).toFixed(2);
+  const apyPercent = formatPercentage(vaultData.apy);
 
   // Filter history data based on selected period and find first non-zero value
   const historyData = useMemo(() => {
@@ -153,6 +155,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           { vaultAddress: vaultData.address, chainId: vaultData.chainId }
         );
         setAllHistoryData([]);
+        showErrorToast('Failed to load vault history. Please refresh the page.', 5000);
       } finally {
         setLoading(false);
       }
@@ -429,7 +432,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </p>
             {vaultData.apyChange !== undefined && vaultData.apyChange !== 0 && (
               <p className={`text-xs mt-2 ${vaultData.apyChange > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
-                {vaultData.apyChange > 0 ? '↑' : '↓'} {Math.abs(vaultData.apyChange * 100).toFixed(2)}% from last period
+                {vaultData.apyChange > 0 ? '↑' : '↓'} {formatPercentage(Math.abs(vaultData.apyChange))} from last period
               </p>
             )}
           </div>
@@ -567,7 +570,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                     />
                     <YAxis 
                       domain={apyYAxisDomain}
-                      tickFormatter={(value) => `${value.toFixed(2)}%`}
+                      tickFormatter={(value) => formatPercentage(value / 100)}
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                     />
@@ -581,7 +584,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                         const timestamp = typeof label === 'number' ? label : parseFloat(String(label));
                         return `Date: ${formatTooltipDate(timestamp)}`;
                       }}
-                      formatter={(value: number) => [`${value.toFixed(2)}%`, 'APY']}
+                      formatter={(value: number) => [formatPercentage(value / 100), 'APY']}
                     />
                     <Line 
                       type="monotone" 
@@ -605,13 +608,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           domain={tvlYAxisDomain}
                           tickFormatter={(value) => {
                             if (valueType === 'usd') {
-                              return `$${(value / 1000).toFixed(2)}k`;
+                              return formatSmartCurrency(value / 1000).replace('$', '$').replace('K', 'k');
                             } else {
                               // Format token amount: use k format if >= 1000, otherwise show full value
                               if (value >= 1000) {
-                                return `${(value / 1000).toFixed(2)}k`;
+                                return formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
                               } else {
-                                return value.toFixed(2);
+                                return formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                               }
                             }
                           }}
@@ -635,7 +638,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                               // Format token amount: use k format if >= 1000, otherwise show full value
                               if (value >= 1000) {
                                 const valueInK = value / 1000;
-                                return [`${valueInK.toFixed(2)}k ${vaultData.symbol || 'Token'}`, 'Total Deposits'];
+                                return [formatNumber(valueInK, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + `k ${vaultData.symbol || 'Token'}`, 'Total Deposits'];
                               } else {
                                 return [
                                   formatAssetAmount(

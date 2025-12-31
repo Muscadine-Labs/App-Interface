@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { useToast } from '@/contexts/ToastContext';
+import { truncateAddress } from '@/lib/formatter';
+import type { Address } from 'viem';
 
 interface CopiableAddressProps {
   address: string;
@@ -16,20 +18,20 @@ export default function CopiableAddress({
   showFullAddress = false,
   truncateLength = 6 
 }: CopiableAddressProps) {
-  const { success } = useToast();
+  const { success, error: showErrorToast } = useToast();
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(address);
       success('Copied to clipboard', 2000);
     } catch {
-      // Silently fail - toast will handle error feedback if needed
+      showErrorToast('Failed to copy to clipboard', 5000);
     }
   };
 
   const displayAddress = showFullAddress 
     ? address 
-    : `${address.slice(0, truncateLength)}...${address.slice(-4)}`;
+    : truncateAddress(address as Address, truncateLength, 4);
 
   return (
     <button

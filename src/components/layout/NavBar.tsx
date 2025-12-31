@@ -113,7 +113,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             FAQ
                                         </h3>
                                         <a
-                                            href="https://doc.muscadine.io"
+                                            href="https://docs.muscadine.io"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"

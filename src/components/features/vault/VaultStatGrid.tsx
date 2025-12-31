@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber } from '@/lib/formatter';
 import { MorphoVaultData } from '@/types/vault';
 import { useOnClickOutside } from '@/hooks/onClickOutside';
 
@@ -48,7 +48,7 @@ function StatCard({ label, value, subValue, tooltip, showApyBreakdown, vaultData
                   <div className="flex justify-between items-center gap-4">
                     <span className="text-[var(--foreground)]">{vaultData.symbol}</span>
                     <span className="text-[var(--foreground)] font-medium">
-                      {((vaultData.netApyWithoutRewards || 0) * 100).toFixed(2)}%
+                      {formatPercentage(vaultData.netApyWithoutRewards || 0)}
                     </span>
                   </div>
                   
@@ -57,17 +57,17 @@ function StatCard({ label, value, subValue, tooltip, showApyBreakdown, vaultData
                       {vaultData.rewardSymbol || 'REWARDS'}
                     </span>
                     <span className="text-[var(--foreground)] font-medium">
-                      {((vaultData.rewardsApr || 0) * 100).toFixed(2)}%
+                      {formatPercentage(vaultData.rewardsApr || 0)}
                     </span>
                   </div>
                   
                   {vaultData.performanceFee !== undefined && vaultData.performanceFee > 0 && (
                     <div className="flex justify-between items-center gap-4">
                       <span className="text-[var(--foreground)]">
-                        Perf. Fee ({vaultData.performanceFee.toFixed(0)}%)
+                        Perf. Fee ({formatPercentage(vaultData.performanceFee / 100, { decimals: 0 })})
                       </span>
                       <span className="text-[var(--foreground)] font-medium">
-                        -{(((vaultData.netApyWithoutRewards || 0) + (vaultData.rewardsApr || 0)) * (vaultData.performanceFee / 100) * 100).toFixed(2)}%
+                        -{formatPercentage(((vaultData.netApyWithoutRewards || 0) + (vaultData.rewardsApr || 0)) * (vaultData.performanceFee / 100))}
                       </span>
                     </div>
                   )}
@@ -113,7 +113,7 @@ export default function VaultStatGrid({ vaultData }: VaultStatGridProps) {
   );
 
   // Format APY
-  const apyPercent = (vaultData.apy * 100).toFixed(2);
+  const apyPercent = formatPercentage(vaultData.apy);
 
   // Get exposure assets from marketAssets (preferred) or fallback to parsing allocatedMarkets
   const exposureAssets: Array<{ symbol: string; address?: string }> = vaultData.marketAssets && vaultData.marketAssets.length > 0

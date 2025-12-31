@@ -2,7 +2,7 @@ import { Vault, getVaultLogo } from '../../../types/vault';
 import Image from 'next/image';
 import { useVaultData } from '../../../contexts/VaultDataContext';
 import { useWallet } from '../../../contexts/WalletContext';
-import { formatSmartCurrency, formatCurrency, formatNumber } from '../../../lib/formatter';
+import { formatSmartCurrency, formatCurrency, formatNumber, formatPercentage } from '../../../lib/formatter';
 import { useRouter, usePathname } from 'next/navigation';
 import { getVaultRoute } from '../../../lib/vault-utils';
 import { useAccount } from 'wagmi';
@@ -155,7 +155,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
                     ) : vaultData ? (
                         <div className="flex flex-col items-end">
                             <span className="text-base font-semibold text-[var(--primary)]">
-                                {(vaultData.apy * 100).toFixed(2)}% APY
+                                {formatPercentage(vaultData.apy)} APY
                             </span>
                             <span className="text-sm text-foreground-secondary">
                                 {formatSmartCurrency(vaultData.totalValueLocked)} TVL
