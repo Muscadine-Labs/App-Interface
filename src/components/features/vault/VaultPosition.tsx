@@ -6,7 +6,7 @@ import { useAccount } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import { useWallet } from '@/contexts/WalletContext';
 import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
-import { calculateYAxisDomain, calculateCurrentAssetsRaw, calculateInterestEarned, resolveAssetPriceUsd } from '@/lib/vault-utils';
+import { calculateYAxisDomain, calculateCurrentAssetsRaw, resolveAssetPriceUsd } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
@@ -203,38 +203,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
     fetchActivity();
   }, [vaultData, address, currentSharePriceUsd, currentTotalSupply, currentVaultPosition?.vault.state?.sharePriceUsd]);
-
-  // Calculate interest earned: Current Assets - (Total Deposits - Total Withdrawals)
-  const interestEarned = useMemo(() => {
-    if (!currentVaultPosition || !vaultData || assetPriceUsd === 0 || userTransactions.length === 0) {
-      return { tokens: 0, usd: 0 };
-    }
-
-    const decimals = assetDecimals || vaultData.assetDecimals || 18;
-
-    const currentAssetsRaw = calculateCurrentAssetsRaw({
-      positionAssets: currentVaultPosition.assets,
-      positionShares: currentVaultPosition.shares,
-      sharePriceInAsset: vaultData.sharePrice,
-      totalAssets: vaultData.totalAssets,
-      totalSupply: currentVaultPosition.vault?.state?.totalSupply,
-      assetDecimals: decimals,
-    });
-
-    const relevantTransactions = userTransactions.filter(
-      (tx): tx is Transaction & { type: 'deposit' | 'withdraw' } =>
-        (tx.type === 'deposit' || tx.type === 'withdraw') && !!tx.assets
-    );
-
-    const interest = calculateInterestEarned({
-      currentAssetsRaw,
-      transactions: relevantTransactions,
-      assetDecimals: decimals,
-      assetPriceUsd,
-    });
-
-    return interest;
-  }, [currentVaultPosition, vaultData, userTransactions, assetPriceUsd, assetDecimals]);
 
   const formatDateShort = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
@@ -684,28 +652,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
             )}
           </div>
 
-          {/* Interest Earned */}
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--foreground)] mb-1">Interest Earned</h2>
-            {!isConnected || !currentVaultPosition ? (
-              <>
-                <p className="text-4xl font-bold text-[var(--foreground)]">—</p>
-              </>
-            ) : (
-              <>
-                <p className="text-4xl font-bold text-[var(--foreground)]">
-                  {formatSmartCurrency(interestEarned.usd)}
-                </p>
-                <p className="text-sm text-[var(--foreground-secondary)] mt-1">
-                  {formatAssetAmount(
-                    BigInt(Math.floor(interestEarned.tokens * Math.pow(10, vaultData.assetDecimals || 18))),
-                    vaultData.assetDecimals || 18,
-                    vaultData.symbol
-                  )}
-                </p>
-              </>
-            )}
-          </div>
 
           {/* Current Earnings Rate */}
           <div>

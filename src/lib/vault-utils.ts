@@ -121,19 +121,6 @@ export function calculateYAxisDomain(
   return [domainMin, domainMax];
 }
 
-export interface InterestCalculationInput {
-  currentAssetsRaw: bigint;
-  transactions: Array<{ type: 'deposit' | 'withdraw'; assets?: string | number | bigint | null }>;
-  assetDecimals?: number;
-  assetPriceUsd?: number;
-  requireTransactions?: boolean;
-}
-
-export interface InterestResult {
-  tokens: number;
-  usd: number;
-}
-
 /**
  * Derive the user's current asset balance in raw units.
  * Priority:
@@ -281,65 +268,5 @@ export function resolveAssetPriceUsd(options: {
   }
 
   return 0;
-}
-
-/**
- * Calculate interest earned using deposits/withdrawals and current assets.
- * Returns 0 if no valid transactions are present to avoid over-reporting interest.
- */
-export function calculateInterestEarned({
-  currentAssetsRaw,
-  transactions,
-  assetDecimals = 18,
-  assetPriceUsd = 0,
-  requireTransactions = true,
-}: InterestCalculationInput): InterestResult {
-  if (currentAssetsRaw <= BigInt(0)) {
-    return { tokens: 0, usd: 0 };
-  }
-
-  if (!Array.isArray(transactions) || transactions.length === 0) {
-    if (requireTransactions) return { tokens: 0, usd: 0 };
-    // If transactions are optional, treat net deposits as 0
-  }
-
-  let totalDepositsRaw = BigInt(0);
-  let totalWithdrawalsRaw = BigInt(0);
-
-  for (const tx of transactions || []) {
-    if (!tx || (tx.type !== 'deposit' && tx.type !== 'withdraw') || tx.assets === undefined || tx.assets === null) {
-      continue;
-    }
-
-    try {
-      const assets = BigInt(tx.assets);
-      if (tx.type === 'deposit') {
-        totalDepositsRaw += assets;
-      } else if (tx.type === 'withdraw') {
-        totalWithdrawalsRaw += assets;
-      }
-    } catch {
-      // Skip invalid asset values
-    }
-  }
-
-  const netDeposits = totalDepositsRaw - totalWithdrawalsRaw;
-
-  if (netDeposits <= BigInt(0)) {
-    return { tokens: 0, usd: 0 };
-  }
-
-  const interestRaw = currentAssetsRaw > netDeposits ? currentAssetsRaw - netDeposits : BigInt(0);
-  const interestTokens = Number(interestRaw) / Math.pow(10, assetDecimals);
-  const interestUsd = interestTokens * assetPriceUsd;
-
-  if (!isFinite(interestTokens) || !isFinite(interestUsd)) {
-    return { tokens: 0, usd: 0 };
-  }
-
-  return {
-    tokens: Math.max(0, interestTokens),
-    usd: Math.max(0, interestUsd),
-  };
 }
 

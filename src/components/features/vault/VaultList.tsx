@@ -55,18 +55,14 @@ export default function VaultList({ onVaultSelect, selectedVaultAddress }: Vault
     return (
         <div className="flex rounded-lg w-full justify-center items-center">
             <div className="flex flex-col items-center justify-center h-full w-full">
-                <div className="flex flex-col items-start justify-start w-full h-full p-4 gap-4">
-                    <h1 className="text-md text-left text-[var(--foreground)] ml-2">Available Vaults</h1>
-                    {/* Column Headers */}
-                    <div className="w-full px-6 pb-2 border-b border-[var(--border)]">
+                <div className="flex flex-col items-start justify-start w-full h-full p-4">
+                    {/* Header Row: Available Vaults + Column Headers */}
+                    <div className="w-full px-6 pb-2 border-b border-[var(--border)] mb-0">
                         <div className="flex items-center justify-between w-full">
-                            <div className="flex-1"></div>
+                            <h1 className="text-md text-left text-[var(--foreground)]">Available Vaults</h1>
                             <div className="flex items-center gap-6 flex-1 justify-end">
                                 <div className="text-sm text-[var(--foreground-secondary)] text-right min-w-[140px]">
                                     Your Position
-                                </div>
-                                <div className="text-sm text-[var(--foreground-secondary)] text-right min-w-[140px]">
-                                    Interest Earned
                                 </div>
                                 <div className="text-sm text-[var(--foreground-secondary)] text-right min-w-[120px]">
                                     APY / TVL
@@ -74,7 +70,7 @@ export default function VaultList({ onVaultSelect, selectedVaultAddress }: Vault
                             </div>
                         </div>
                     </div>
-                    <div className="flex flex-col items-start justify-start w-full h-full overflow-y-auto">
+                    <div className="flex flex-col items-start justify-start w-full h-full overflow-y-auto pt-0">
                         {sortedVaults.map((vault, index) => (
                             <div key={`${vault.address}-${index}`} className="w-full">
                                 <VaultListCard 

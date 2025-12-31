@@ -16,6 +16,7 @@ import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { TransactionModalProvider } from '../contexts/TransactionModalContext'
 import { ToastProvider } from '../contexts/ToastContext'
+import { ThemeProvider } from '../contexts/ThemeContext'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'
 import { logger } from '../lib/logger'
 
@@ -57,17 +58,19 @@ export function Providers({ children, initialState }: Props) {
                 overlayBlur: 'small',
               })}
             >
-              <ToastProvider>
-                <WalletProvider>
-                  <TransactionModalProvider>
-                    <VaultDataProvider>
-                      <TransactionProvider>
-                        {children}
-                      </TransactionProvider>
-                    </VaultDataProvider>
-                  </TransactionModalProvider>
-                </WalletProvider>
-              </ToastProvider>
+              <ThemeProvider>
+                <ToastProvider>
+                  <WalletProvider>
+                    <TransactionModalProvider>
+                      <VaultDataProvider>
+                        <TransactionProvider>
+                          {children}
+                        </TransactionProvider>
+                      </VaultDataProvider>
+                    </TransactionModalProvider>
+                  </WalletProvider>
+                </ToastProvider>
+              </ThemeProvider>
             </RainbowKitProvider>
           </QueryClientProvider>
         </WagmiProvider>

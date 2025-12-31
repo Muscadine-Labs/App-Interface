@@ -75,7 +75,7 @@ export async function GET(
       ...(escapedUserAddress ? [`userAddress_in: ["${escapedUserAddress}"]`] : [])
     ].join(', ');
 
-    // Fetch all transactions with pagination if userAddress is provided (for interest calculation)
+    // Fetch all transactions with pagination if userAddress is provided
     // Otherwise, limit to 100 for performance
     const transactionLimit = userAddress ? 1000 : 100;
     

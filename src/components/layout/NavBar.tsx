@@ -8,6 +8,7 @@ import { navigationItems, NavItem } from "@/config/navigation";
 import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface NavBarProps {
     isRightSidebarCollapsed?: boolean;
@@ -25,7 +26,10 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     // Settings state with defaults
     const [version, setVersion] = useState<'V1' | 'V2'>('V1');
     const [mode, setMode] = useState<'Advanced' | 'Simple'>('Advanced');
-    const [theme, setTheme] = useState<'Dark' | 'Light' | 'Auto'>('Auto');
+    const { theme, setTheme } = useTheme();
+    
+    // Debug: Log theme value on render
+    console.log('[NavBar] Current theme from useTheme():', theme);
 
     const isActive = useCallback((item: NavItem): boolean => {
         // Vaults dropdown is active if we're on a vault page
@@ -244,9 +248,13 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                     {/* Right side: Settings, Connect Button and Sidebar Toggle */}
                     <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                         {/* Settings Dropdown */}
-                        <div className="relative flex items-center" ref={settingsRef}>
+                        <div 
+                            className="relative flex items-center" 
+                            ref={settingsRef}
+                            onMouseEnter={() => setIsSettingsOpen(true)}
+                            onMouseLeave={() => setIsSettingsOpen(false)}
+                        >
                             <button
-                                onClick={() => setIsSettingsOpen(!isSettingsOpen)}
                                 className="flex items-center gap-2 hover:opacity-80 transition-opacity p-2"
                                 aria-label="Settings"
                             >
@@ -266,12 +274,24 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
 
                             {/* Settings Dropdown Menu */}
                             {isSettingsOpen && (
-                                <div className="absolute right-0 top-full mt-2 w-48 bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-50 animate-[fadeInUp_0.2s_ease-out]">
+                                <>
+                                    {/* Invisible bridge to prevent gap closing dropdown */}
+                                    <div 
+                                        className="absolute top-full right-0 w-full h-2 z-[60]"
+                                        onMouseEnter={() => setIsSettingsOpen(true)}
+                                    />
+                                    <div 
+                                        className="absolute right-0 top-full mt-2 w-48 bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
+                                        onMouseEnter={() => setIsSettingsOpen(true)}
+                                        onMouseLeave={() => setIsSettingsOpen(false)}
+                                    >
                                     {/* Version Section */}
                                     <div className="px-4 mb-4">
                                         <div className="flex items-center justify-between">
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     setVersion('V2');
                                                     setIsSettingsOpen(false);
                                                 }}
@@ -284,7 +304,9 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 V2
                                             </button>
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     setVersion('V1');
                                                     setIsSettingsOpen(false);
                                                 }}
@@ -306,7 +328,9 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                     <div className="px-4 mb-4">
                                         <div className="flex items-center justify-between">
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     setMode('Advanced');
                                                     setIsSettingsOpen(false);
                                                 }}
@@ -319,7 +343,9 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 Advanced
                                             </button>
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     setMode('Simple');
                                                     setIsSettingsOpen(false);
                                                 }}
@@ -341,8 +367,13 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                     <div className="px-4">
                                         <div className="flex items-center justify-between gap-1">
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    console.log('[NavBar] Dark button clicked');
+                                                    e.stopPropagation();
+                                                    console.log('[NavBar] Current theme before setTheme:', theme);
                                                     setTheme('Dark');
+                                                    console.log('[NavBar] setTheme("Dark") called');
                                                     setIsSettingsOpen(false);
                                                 }}
                                                 className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors ${
@@ -354,8 +385,13 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 Dark
                                             </button>
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    console.log('[NavBar] Light button clicked');
+                                                    e.stopPropagation();
+                                                    console.log('[NavBar] Current theme before setTheme:', theme);
                                                     setTheme('Light');
+                                                    console.log('[NavBar] setTheme("Light") called');
                                                     setIsSettingsOpen(false);
                                                 }}
                                                 className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors ${
@@ -367,8 +403,13 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 Light
                                             </button>
                                             <button
-                                                onClick={() => {
+                                                type="button"
+                                                onClick={(e) => {
+                                                    console.log('[NavBar] Auto button clicked');
+                                                    e.stopPropagation();
+                                                    console.log('[NavBar] Current theme before setTheme:', theme);
                                                     setTheme('Auto');
+                                                    console.log('[NavBar] setTheme("Auto") called');
                                                     setIsSettingsOpen(false);
                                                 }}
                                                 className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors ${
@@ -381,7 +422,8 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             </button>
                                         </div>
                                     </div>
-                                </div>
+                                    </div>
+                                </>
                             )}
                         </div>
 

@@ -4,9 +4,9 @@ import { useVaultData } from '../../../contexts/VaultDataContext';
 import { useWallet } from '../../../contexts/WalletContext';
 import { formatSmartCurrency, formatCurrency, formatNumber } from '../../../lib/formatter';
 import { useRouter, usePathname } from 'next/navigation';
-import { getVaultRoute, calculateCurrentAssetsRaw, calculateInterestEarned, resolveAssetPriceUsd } from '../../../lib/vault-utils';
+import { getVaultRoute } from '../../../lib/vault-utils';
 import { useAccount } from 'wagmi';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState } from 'react';
 
 interface VaultListCardProps {
     vault: Vault;
@@ -22,11 +22,6 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     const pathname = usePathname();
     const vaultData = getVaultData(vault.address);
     const loading = isLoading(vault.address);
-    const [userTransactions, setUserTransactions] = useState<Array<{ type: 'deposit' | 'withdraw'; assets: string }>>([]);
-    const [assetPriceUsd, setAssetPriceUsd] = useState<number>(0);
-    const [assetDecimals, setAssetDecimals] = useState<number>(vaultData?.assetDecimals || 18);
-    const [isLoadingInterest, setIsLoadingInterest] = useState(false);
-    const hasFetchedRef = useRef<string>('');
     
     // Check if this vault is active based on the current route
     const vaultRoute = getVaultRoute(vault.address);
@@ -41,80 +36,6 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     const userPositionValue = userPosition ? 
         (parseFloat(userPosition.shares) / 1e18) * userPosition.vault.state.sharePriceUsd : 0;
 
-    // Fetch user transactions and asset price from GraphQL to calculate interest earned
-    useEffect(() => {
-        // Only fetch if user has a position and is connected
-        if (!address || !userPosition || !vaultData) {
-            return;
-        }
-
-        // Create a unique key for this fetch to prevent duplicate fetches
-        const fetchKey = `${address}-${vault.address}-${userPosition.shares}`;
-        if (hasFetchedRef.current === fetchKey) {
-            return; // Already fetched for this combination
-        }
-
-        let cancelled = false;
-
-        const fetchData = async () => {
-            setIsLoadingInterest(true);
-            try {
-                const activityResponse = await fetch(`/api/vaults/${vault.address}/activity?chainId=${vault.chainId}&userAddress=${address}`);
-
-                if (cancelled) return;
-
-                const activityData = await activityResponse.json().catch(() => ({}));
-
-                const relevantTxs = Array.isArray(activityData.transactions)
-                    ? activityData.transactions
-                        .filter((tx: { type: string; assets?: string }) =>
-                            (tx.type === 'deposit' || tx.type === 'withdraw') && tx.assets
-                        )
-                        .map((tx: { type: string; assets: string }) => ({
-                            type: tx.type as 'deposit' | 'withdraw',
-                            assets: tx.assets
-                        }))
-                    : [];
-
-                if (!cancelled) {
-                    setUserTransactions(relevantTxs);
-                    setAssetDecimals(activityData.assetDecimals || vaultData?.assetDecimals || 18);
-
-                    const resolvedPrice = resolveAssetPriceUsd({
-                        quotedPriceUsd: activityData.assetPriceUsd,
-                        vaultData,
-                        assetDecimals: activityData.assetDecimals || vaultData?.assetDecimals || 18,
-                        fallbackSharePriceUsd: userPosition.vault.state?.sharePriceUsd,
-                    });
-
-                    setAssetPriceUsd(resolvedPrice);
-                    hasFetchedRef.current = fetchKey;
-                }
-            } catch (error) {
-                console.warn('Failed to fetch asset price for interest calculation:', error);
-                if (!cancelled && vaultData) {
-                    const fallbackPrice = resolveAssetPriceUsd({
-                        quotedPriceUsd: null,
-                        vaultData,
-                        assetDecimals: vaultData.assetDecimals,
-                        fallbackSharePriceUsd: userPosition?.vault.state?.sharePriceUsd,
-                    });
-                    setAssetPriceUsd(fallbackPrice);
-                    hasFetchedRef.current = fetchKey;
-                }
-            } finally {
-                if (!cancelled) {
-                    setIsLoadingInterest(false);
-                }
-            }
-        };
-
-        fetchData();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [address, vault.address, vault.chainId, userPosition, vaultData]);
 
     const handleClick = () => {
         // If onClick prop is provided (legacy behavior), use it
@@ -182,41 +103,6 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     
     const userVaultBalance = getUserVaultBalance();
 
-    // Calculate interest earned: Current Assets - (Total Deposits - Total Withdrawals)
-    const interestEarned = useMemo(() => {
-        // Don't calculate if still loading or missing required data
-        if (isLoadingInterest || !userPosition || !vaultData) {
-            return { tokens: 0, usd: 0 };
-        }
-
-        // Use fallback price if assetPriceUsd is 0
-        const effectivePriceUsd = assetPriceUsd > 0 ? assetPriceUsd : 
-            (vaultData.sharePrice ? 
-                (vaultData.totalValueLocked && vaultData.totalAssets ? 
-                    vaultData.totalValueLocked / (parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18)) : 
-                    1) : 
-                1);
-
-        // Get current assets in raw units - use same logic as getUserVaultBalance for consistency
-        const currentAssetsRaw = calculateCurrentAssetsRaw({
-            positionAssets: userPosition.assets,
-            positionShares: userPosition.shares,
-            sharePriceInAsset: vaultData.sharePrice,
-            totalAssets: vaultData.totalAssets,
-            totalSupply: userPosition.vault?.state?.totalSupply,
-            assetDecimals,
-        });
-
-        const interest = calculateInterestEarned({
-            currentAssetsRaw,
-            transactions: userTransactions,
-            assetDecimals,
-            assetPriceUsd: effectivePriceUsd,
-        });
-
-        return interest;
-    }, [userPosition, vaultData, userTransactions, assetPriceUsd, isLoadingInterest, assetDecimals]);
-
     return (
         <div 
             className={`flex items-center justify-between w-full cursor-pointer transition-all p-6 min-w-[320px] ${
@@ -244,7 +130,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
                 </div>
             </div>
 
-            {/* Right side - Your Position, Interest Earned, APY, and TVL */}
+            {/* Right side - Your Position, APY, and TVL */}
             <div className="flex items-center gap-6 flex-1 justify-end">
                 {/* Your Position Column - Token balance on top, USD below */}
                 <div className="text-right min-w-[140px]">
@@ -257,34 +143,6 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
                                 {formatCurrency(userPositionValue)}
                             </span>
                         </div>
-                    ) : (
-                        <span className="text-sm text-[var(--foreground-muted)]">-</span>
-                    )}
-                </div>
-
-                {/* Interest Earned Column */}
-                <div className="text-right min-w-[140px]">
-                    {userPosition && userPositionValue > 0 ? (
-                        isLoadingInterest ? (
-                            <div className="flex flex-col">
-                                <span className="text-base font-semibold text-[var(--foreground)]">—</span>
-                                <span className="text-sm text-[var(--foreground-secondary)] mt-1">—</span>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col">
-                                <span className="text-base font-semibold text-[var(--foreground)]">
-                                    {interestEarned.tokens > 0 
-                                        ? formatNumber(interestEarned.tokens, { 
-                                            minimumFractionDigits: 2, 
-                                            maximumFractionDigits: 6 
-                                          })
-                                        : '0.00'}
-                                </span>
-                                <span className="text-sm text-[var(--foreground-secondary)] mt-1">
-                                    {formatSmartCurrency(interestEarned.usd)}
-                                </span>
-                            </div>
-                        )
                     ) : (
                         <span className="text-sm text-[var(--foreground-muted)]">-</span>
                     )}
