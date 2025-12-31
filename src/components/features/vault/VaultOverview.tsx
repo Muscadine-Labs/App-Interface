@@ -74,8 +74,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       // For 90 days, show month and day
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     } else {
-      // For 1 year, show month and year
-      return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      // For 1 year, show month, day, and year to ensure unique dates
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
     }
   };
 
