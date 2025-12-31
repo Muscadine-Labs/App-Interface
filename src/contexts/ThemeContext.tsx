@@ -15,21 +15,19 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_STORAGE_KEY = 'muscadine-theme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'Auto';
+  // Safe SSR defaults - no localStorage or matchMedia access during render
+  const [theme, setThemeState] = useState<Theme>('Auto');
+  const [effectiveTheme, setEffectiveTheme] = useState<'dark' | 'light'>('dark');
+
+  // Initialize theme from localStorage after mount
+  useEffect(() => {
     const stored = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
-    return stored || 'Auto';
-  });
-
-  const [effectiveTheme, setEffectiveTheme] = useState<'dark' | 'light'>(() => {
-    if (typeof window === 'undefined') return 'dark';
-    if (theme !== 'Auto') {
-      return theme === 'Dark' ? 'dark' : 'light';
+    if (stored && (stored === 'Dark' || stored === 'Light' || stored === 'Auto')) {
+      setThemeState(stored);
     }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  }, []); // Run only once on mount
 
-  // Update effective theme when theme changes
+  // Update effective theme when theme changes and subscribe to matchMedia changes
   useEffect(() => {
     if (theme === 'Auto') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -37,13 +35,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setEffectiveTheme(mediaQuery.matches ? 'dark' : 'light');
       };
       
+      // Set initial effective theme
       updateEffectiveTheme();
+      
+      // Subscribe to system preference changes
       mediaQuery.addEventListener('change', updateEffectiveTheme);
       
       return () => {
         mediaQuery.removeEventListener('change', updateEffectiveTheme);
       };
     } else {
+      // For explicit themes, set effectiveTheme directly
       setEffectiveTheme(theme === 'Dark' ? 'dark' : 'light');
     }
   }, [theme]);

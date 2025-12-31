@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useWalletClient } from 'wagmi';
+import { useAccount, useWalletClient, usePublicClient } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { MerklClaimData } from '@/types/api';
 import { getAddress, type Address } from 'viem';
@@ -31,6 +31,7 @@ interface RewardsState {
 export function useMorphoRewards() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
   const [rewardsState, setRewardsState] = useState<RewardsState>({
     merklClaimData: null,
     totalClaimableUsd: 0,
@@ -180,13 +181,15 @@ export function useMorphoRewards() {
     });
 
     // Step 4: Wait for confirmation (matching documentation format)
-    const receipt = await walletClient.waitForTransactionReceipt({ hash });
+    if (publicClient) {
+      await publicClient.waitForTransactionReceipt({ hash });
+    }
 
     // Refresh rewards after claiming
     await fetchRewards();
 
     return hash;
-  }, [walletClient, rewardsState.merklClaimData, fetchRewards]);
+  }, [walletClient, publicClient, rewardsState.merklClaimData, fetchRewards]);
 
   // Fetch rewards on mount and when address changes
   useEffect(() => {
