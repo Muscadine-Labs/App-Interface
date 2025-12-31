@@ -106,13 +106,13 @@ export const useVaultSimulationState = (
 
   // Only watch block when simulation is actively needed (e.g., modal is open)
   // Disable watch to reduce RPC calls - block will be fetched once per render
-  const { data: block } = useBlock({
+  const { data: block, refetch: refetchBlock } = useBlock({
     chainId: BASE_CHAIN_ID,
     watch: false, // Disable continuous watching to reduce RPC calls
     query: {
       enabled: shouldFetch,
       refetchInterval: false, // Disable polling - only fetch when needed
-      staleTime: 30000, // Cache for 30 seconds
+      staleTime: 0, // Always fetch fresh block before transactions
     },
   });
 
@@ -270,7 +270,7 @@ export const useVaultSimulationState = (
     query: {
       enabled: isDataReady,
       refetchInterval: false, // Disable automatic refetching
-      staleTime: 60000, // Cache for 60 seconds (increased from 30s)
+      staleTime: 0, // Always fetch fresh simulation state before transactions
     },
   });
 
@@ -335,6 +335,11 @@ export const useVaultSimulationState = (
     isPending: isLengthLoading || isQueueLoading || isAssetLoading || simulation.isPending,
     error: errorMessage,
     bundler,
+    refetch: async () => {
+      // Refetch block first to ensure we have the latest block
+      // The simulation state will automatically update when the block changes
+      await refetchBlock();
+    },
     config: {
       users,
       tokens,
