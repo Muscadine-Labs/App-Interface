@@ -6,7 +6,7 @@ import { ReactNode, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
-import { config } from './config'
+import { config } from '@/config/wagmi'
 import { base } from 'wagmi/chains'
 import '@rainbow-me/rainbowkit/styles.css'
 import { ApolloClient, HttpLink, InMemoryCache } from "@apollo/client";
