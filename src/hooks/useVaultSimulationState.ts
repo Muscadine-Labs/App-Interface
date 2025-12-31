@@ -94,6 +94,7 @@ export const useVaultSimulationState = (
 ) => {
   const { address } = useAccount();
   const vaultDataContext = useVaultData();
+  const queryClient = useQueryClient();
   const shouldFetch = enabled && !!vaultAddress && !!address;
 
   // Fetch native ETH balance to ensure it's available for wrapping
