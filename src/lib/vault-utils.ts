@@ -51,3 +51,75 @@ export function isValidEthereumAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
+/**
+ * Calculate Y-axis domain for charts with padding
+ * @param values - Array of numeric values to calculate domain from
+ * @param options - Configuration options
+ * @returns [min, max] domain array or undefined if no valid values
+ */
+export function calculateYAxisDomain(
+  values: number[],
+  options: {
+    bottomPaddingPercent?: number; // Default: 0.25 (25%)
+    topPaddingPercent?: number; // Default: 0.2 (20%)
+    thresholdPercent?: number; // Default: 0.02 (2%) - percentage of max to consider "close to 0"
+    defaultMin?: number; // Default: 0
+    defaultMax?: number; // Default: 100
+    filterPositiveOnly?: boolean; // Default: false
+    tokenThreshold?: number; // If provided and maxValue >= this, use different threshold for tokens
+  } = {}
+): [number, number] | undefined {
+  const {
+    bottomPaddingPercent = 0.25,
+    topPaddingPercent = 0.2,
+    thresholdPercent = 0.02,
+    defaultMin = 0,
+    defaultMax = 100,
+    filterPositiveOnly = false,
+    tokenThreshold,
+  } = options;
+
+  // Filter values
+  let filteredValues = values.filter(
+    (v) => v !== null && v !== undefined && !isNaN(v)
+  );
+  
+  if (filterPositiveOnly) {
+    filteredValues = filteredValues.filter((v) => v > 0);
+  }
+
+  if (filteredValues.length === 0) {
+    return undefined;
+  }
+
+  const minValue = Math.min(...filteredValues);
+  const maxValue = Math.max(...filteredValues);
+
+  // Determine threshold and adjustment logic
+  let adjustedMinValue = minValue;
+  
+  if (tokenThreshold !== undefined) {
+    // Token-specific logic: only adjust to 0 if max >= tokenThreshold
+    if (maxValue >= tokenThreshold) {
+      const threshold = maxValue * 0.01; // 1% for tokens when max >= tokenThreshold
+      adjustedMinValue = minValue < threshold ? 0 : minValue;
+    }
+    // If max < tokenThreshold, keep the actual minValue (don't adjust to 0)
+  } else {
+    // Standard logic: use thresholdPercent
+    const threshold = maxValue * thresholdPercent;
+    adjustedMinValue = minValue < threshold ? 0 : minValue;
+  }
+
+  // Calculate padding
+  const range = maxValue - adjustedMinValue;
+  const bottomPadding = range * bottomPaddingPercent;
+  const topPadding = range * topPaddingPercent;
+
+  // Calculate domain
+  const domainMin = Math.max(defaultMin, adjustedMinValue - bottomPadding);
+  const domainMax = maxValue + topPadding;
+
+  return [domainMin, domainMax];
+}
+
