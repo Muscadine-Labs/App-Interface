@@ -16,7 +16,7 @@ export default function NotFound() {
           Oops! This page got lost in the vault
         </h2>
         <p className="text-[var(--foreground-secondary)] text-base max-w-md mx-auto leading-relaxed">
-          Hey there! It looks like the page you're looking for doesn't exist. If you think this is an error, please contact our support.
+          Hey there! It looks like the page you&apos;re looking for doesn&apos;t exist. If you think this is an error, please contact our support.
         </p>
       </div>
       <div className="flex gap-3 flex-col sm:flex-row">

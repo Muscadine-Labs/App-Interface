@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage } from '@/lib/formatter';
 import { MorphoVaultData } from '@/types/vault';
 import { useOnClickOutside } from '@/hooks/onClickOutside';
 

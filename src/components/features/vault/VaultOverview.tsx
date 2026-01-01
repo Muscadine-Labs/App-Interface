@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber, formatCurrency } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
@@ -36,7 +36,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [allHistoryData, setAllHistoryData] = useState<HistoryDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<'apy' | 'tvl'>('apy');
-  const [valueType, setValueType] = useState<'usd' | 'token'>('usd');
+  const [valueType, setValueType] = useState<'usd' | 'token'>('token');
   const { error: showErrorToast } = useToast();
 
   // Format liquidity
@@ -163,7 +163,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     };
 
     fetchAllHistory();
-  }, [vaultData.address, vaultData.chainId]);
+  }, [vaultData.address, vaultData.chainId, showErrorToast]);
 
   // Calculate available periods based on data range
   const availablePeriods = useMemo(() => {
@@ -607,7 +607,10 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                         const timestamp = typeof label === 'number' ? label : parseFloat(String(label));
                         return `Date: ${formatTooltipDate(timestamp)}`;
                       }}
-                      formatter={(value: number) => [formatPercentage(value / 100), 'APY']}
+                      formatter={(value: number | undefined) => {
+                        if (value === undefined) return ['', 'APY'];
+                        return [formatPercentage(value / 100), 'APY'];
+                      }}
                     />
                     <Line 
                       type="monotone" 
@@ -654,7 +657,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                             const timestamp = typeof label === 'number' ? label : parseFloat(String(label));
                             return `Date: ${formatTooltipDate(timestamp)}`;
                           }}
-                          formatter={(value: number) => {
+                          formatter={(value: number | undefined) => {
+                            if (value === undefined) return ['', 'Total Deposits'];
                             if (valueType === 'usd') {
                               return [formatSmartCurrency(value, { alwaysTwoDecimals: true }), 'Total Deposits'];
                             } else {

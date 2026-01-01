@@ -1,11 +1,9 @@
 'use client';
 
 import { useAccount } from 'wagmi';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultData } from '@/contexts/VaultDataContext';
 import { formatNumber, formatCurrency } from '@/lib/formatter';
-import { resolveAssetPriceUsd } from '@/lib/vault-utils';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
     useFloating,
@@ -23,7 +21,6 @@ import {
 export default function WalletOverview() {
     const { address, isConnected } = useAccount();
     const { totalUsdValue, liquidUsdValue, morphoUsdValue, tokenBalances, morphoHoldings, loading: walletLoading } = useWallet();
-    const { getVaultData } = useVaultData();
     const [isMounted, setIsMounted] = useState(false);
     const [totalAssetsOpen, setTotalAssetsOpen] = useState(false);
     const [liquidAssetsOpen, setLiquidAssetsOpen] = useState(false);

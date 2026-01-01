@@ -6,7 +6,6 @@ import { formatSmartCurrency, formatCurrency, formatNumber, formatPercentage } f
 import { useRouter, usePathname } from 'next/navigation';
 import { getVaultRoute } from '../../../lib/vault-utils';
 import { useAccount } from 'wagmi';
-import { useState } from 'react';
 import { Skeleton } from '../../../components/ui/Skeleton';
 
 interface VaultListCardProps {
