@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import { useWallet } from '@/contexts/WalletContext';
-import { formatSmartCurrency, formatAssetAmount, formatCurrency } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatCurrency, formatPercentage } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
