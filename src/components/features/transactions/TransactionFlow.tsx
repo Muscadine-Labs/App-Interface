@@ -8,6 +8,7 @@ import { useVaultTransactions, TransactionProgressStep } from '@/hooks/useVaultT
 import { isCancellationError, formatTransactionError } from '@/lib/transactionUtils';
 import { TransactionConfirmation } from './TransactionConfirmation';
 import { TransactionStatus as TransactionStatusComponent } from './TransactionStatus';
+import { useToast } from '@/contexts/ToastContext';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -25,6 +26,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     derivedAsset,
     setStatus,
   } = useTransactionState();
+  const { success, error: showErrorToast } = useToast();
 
 
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
@@ -89,15 +91,18 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         setStepsInfo([]);
         setTotalSteps(0);
       } else {
-        setStatus('error', formatTransactionError(prerequisiteReceiptError));
+        const errorMessage = formatTransactionError(prerequisiteReceiptError);
+        showErrorToast(errorMessage, 5000);
+        setStatus('error', errorMessage);
       }
     }
-  }, [prerequisiteReceipt, prerequisiteReceiptError, currentPrerequisiteStep, setStatus]);
+  }, [prerequisiteReceipt, prerequisiteReceiptError, currentPrerequisiteStep, setStatus, showErrorToast]);
 
   // Handle transaction receipt
   useEffect(() => {
     const hashToUse = currentTxHash || txHash;
     if (receipt && status === 'confirming' && hashToUse) {
+      success('Transaction confirmed!', 3000);
       setStatus('success', undefined, hashToUse);
       // Don't auto-close - let user see the confirmation page with details
     } else if (receiptError && status === 'confirming' && hashToUse) {
@@ -108,10 +113,12 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         setStepsInfo([]);
         setTotalSteps(0);
       } else {
-        setStatus('error', formatTransactionError(receiptError));
+        const errorMessage = formatTransactionError(receiptError);
+        showErrorToast(errorMessage, 5000);
+        setStatus('error', errorMessage);
       }
     }
-  }, [receipt, receiptError, status, txHash, currentTxHash, setStatus, onSuccess]);
+  }, [receipt, receiptError, status, txHash, currentTxHash, setStatus, onSuccess, success, showErrorToast]);
 
   const handleConfirm = async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
@@ -124,7 +131,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       : null);
 
     if (!assetToUse) {
-      setStatus('error', 'Unable to determine asset type. Please try again.');
+      const errorMessage = 'Unable to determine asset type. Please try again.';
+      setStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
       return;
     }
 
@@ -201,6 +210,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       
       const errorMessage = formatTransactionError(err);
       setStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
     }
   };
 

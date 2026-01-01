@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
-import { formatSmartCurrency, formatAssetAmount } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
 import CopiableAddress from '@/components/common/CopiableAddress';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
@@ -62,17 +63,6 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
     fetchActivity();
   }, [vaultData.address, vaultData.chainId, address]);
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
   };
@@ -103,8 +93,28 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
       {/* Transaction List - Scrollable */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between p-4 bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)]"
+              >
+                <div className="flex items-center gap-4 flex-1">
+                  <Skeleton variant="circular" width="8px" height="8px" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton width="4rem" height="1rem" />
+                      <Skeleton width="5rem" height="1rem" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Skeleton width="6rem" height="0.75rem" />
+                      <Skeleton width="6rem" height="0.75rem" />
+                    </div>
+                  </div>
+                </div>
+                <Skeleton width="3rem" height="0.75rem" />
+              </div>
+            ))}
           </div>
         ) : recentTransactions.length > 0 ? (
           <div className="space-y-2">
@@ -179,7 +189,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                   ...userTransactions.map(tx => [
                     formatDate(tx.timestamp),
                     tx.type,
-                    tx.assetsUsd?.toFixed(2) || '0',
+                    tx.assetsUsd ? formatCurrency(tx.assetsUsd).replace('$', '') : '0',
                     tx.transactionHash || '',
                   ].join(',')),
                 ].join('\n');

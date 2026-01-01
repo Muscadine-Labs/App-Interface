@@ -1,9 +1,12 @@
 'use client';
 
 import { useAccount } from 'wagmi';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
+import { useVaultData } from '@/contexts/VaultDataContext';
 import { formatNumber, formatCurrency } from '@/lib/formatter';
+import { resolveAssetPriceUsd } from '@/lib/vault-utils';
+import { Skeleton } from '@/components/ui/Skeleton';
 import {
     useFloating,
     autoUpdate,
@@ -19,7 +22,8 @@ import {
 
 export default function WalletOverview() {
     const { address, isConnected } = useAccount();
-    const { totalUsdValue, liquidUsdValue, morphoUsdValue, tokenBalances, loading: walletLoading } = useWallet();
+    const { totalUsdValue, liquidUsdValue, morphoUsdValue, tokenBalances, morphoHoldings, loading: walletLoading } = useWallet();
+    const { getVaultData } = useVaultData();
     const [isMounted, setIsMounted] = useState(false);
     const [totalAssetsOpen, setTotalAssetsOpen] = useState(false);
     const [liquidAssetsOpen, setLiquidAssetsOpen] = useState(false);
@@ -65,6 +69,7 @@ export default function WalletOverview() {
     ]);
 
 
+
     // Prevent hydration mismatch by only rendering client-side content after mount
     useEffect(() => {
         setIsMounted(true);
@@ -73,10 +78,21 @@ export default function WalletOverview() {
     if (!isMounted) {
         // Return a simple loading state during SSR
         return (
-            <div className="flex flex-col items-center justify-center w-full h-full bg-[var(--surface)] rounded-lg px-8 py-4 gap-6">
-                <div className="animate-pulse">
-                    <div className="h-8 w-48 bg-[var(--background-elevated)] rounded mb-4"></div>
-                    <div className="h-4 w-64 bg-[var(--background-elevated)] rounded"></div>
+            <div className="flex flex-col items-start justify-start w-full h-full bg-[var(--surface)] rounded-lg px-4 sm:px-6 md:px-8 py-4 gap-4 md:gap-6">
+                <Skeleton width="8rem" height="1.5rem" />
+                <div className="flex flex-col md:flex-row items-start md:justify-between w-full gap-4 md:gap-6">
+                    <div className="flex flex-col items-start w-full md:w-auto gap-2">
+                        <Skeleton width="5rem" height="1rem" />
+                        <Skeleton width="8rem" height="2rem" />
+                    </div>
+                    <div className="flex flex-col items-start w-full md:w-auto gap-2">
+                        <Skeleton width="6rem" height="1rem" />
+                        <Skeleton width="8rem" height="2rem" />
+                    </div>
+                    <div className="flex flex-col items-start w-full md:w-auto gap-2">
+                        <Skeleton width="6rem" height="1rem" />
+                        <Skeleton width="8rem" height="2rem" />
+                    </div>
                 </div>
             </div>
         );
@@ -84,7 +100,7 @@ export default function WalletOverview() {
 
     if (!isConnected) {
         return (
-            <div className="flex flex-col items-center justify-center w-full h-full bg-[var(--surface)] rounded-lg px-8 py-4 gap-6">
+            <div className="flex flex-col items-center justify-center w-full h-full bg-[var(--surface)] rounded-lg px-4 sm:px-6 md:px-8 py-4 gap-6">
                 <div className="flex flex-col items-center gap-4">
                     
                     <p className="text-[var(--foreground-secondary)] text-center max-w-md">
@@ -98,35 +114,58 @@ export default function WalletOverview() {
     // Connected state - show wallet stats
     const truncatedAddress = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
     
-    // Find the asset with the highest USD value for liquid assets (for dropdown display)
-    const sortedLiquidAssets = [...tokenBalances].sort((a, b) => b.usdValue - a.usdValue);
+    // Filter and sort liquid assets - only show assets with more than $0.02, limit to 10
+    const sortedLiquidAssets = [...tokenBalances]
+        .filter((asset) => asset.usdValue > 0.02)
+        .sort((a, b) => b.usdValue - a.usdValue)
+        .slice(0, 10);
+    
+    // Calculate and sort Morpho vault positions by USD value, limit to 10
+    const sortedVaultPositions = morphoHoldings.positions
+        .map((position) => {
+            const shares = parseFloat(position.shares) / 1e18;
+            const sharePriceUsd = position.vault.state?.sharePriceUsd || 0;
+            const usdValue = shares * sharePriceUsd;
+            return {
+                address: position.vault.address,
+                name: position.vault.name,
+                symbol: position.vault.symbol,
+                usdValue,
+            };
+        })
+        .filter((pos) => pos.usdValue > 0.02) // Only show positions with more than $0.02
+        .sort((a, b) => b.usdValue - a.usdValue)
+        .slice(0, 10);
     
 
     return (
-        <div className="flex flex-col items-start justify-start w-full h-full bg-[var(--surface)] rounded-lg px-8 py-4 gap-6 overflow-x-auto">
+        <div className="flex flex-col items-start justify-start w-full h-full bg-[var(--surface)] rounded-lg px-4 sm:px-6 md:px-8 py-4 gap-4 md:gap-6 overflow-x-auto">
             <div className="flex items-center gap-2">
-                <h1>
+                <h1 className="text-lg sm:text-xl">
                     Wallet {truncatedAddress && (
-                        <span className="text-sm font-normal text-gray-500 ml-1">
+                        <span className="text-xs sm:text-sm font-normal text-gray-500 ml-1">
                             ({truncatedAddress})
                         </span>
                     )}
                 </h1>
             </div>
-            <div className="flex items-start justify-between w-full">
-                <div className="flex flex-col items-start">
-                        <h1 className="text-md text-left text-[var(--foreground-secondary)]">
-                            Total Assets
-                        </h1>
-                    
+            <div className="flex flex-col md:flex-row items-start md:justify-between w-full gap-4 md:gap-6">
+                <div className="flex flex-col items-start w-full md:w-auto">
+                    <h1 className="text-sm md:text-md text-left text-[var(--foreground-secondary)]">
+                        Total Assets
+                    </h1>
                     <div 
                         ref={totalAssets.refs.setReference}
                         {...totalAssetsInteractions.getReferenceProps()}
                         className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
                     >
-                        <h1 className="text-3xl font-bold">
-                            {walletLoading ? 'Loading...' : totalUsdValue}
-                        </h1>
+                        {walletLoading ? (
+                            <Skeleton width="8rem" height="2rem" />
+                        ) : (
+                            <h1 className="text-2xl md:text-3xl font-bold">
+                                {totalUsdValue}
+                            </h1>
+                        )}
                         <svg 
                             width="16" 
                             height="16" 
@@ -138,20 +177,49 @@ export default function WalletOverview() {
                         </svg>
                     </div>
                 </div>
-                <div className="flex flex-col items-start">
-                    
-                        <h1 className="text-md text-left text-[var(--foreground-secondary)]">
-                            Liquid Assets
-                        </h1>
-              
+                <div className="flex flex-col items-start w-full md:w-auto">
+                    <h1 className="text-sm md:text-md text-left text-[var(--foreground-secondary)]">
+                        Morpho Vaults
+                    </h1>
+                    <div 
+                        ref={morphoVaults.refs.setReference}
+                        {...morphoVaultsInteractions.getReferenceProps()}
+                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                    >
+                        {walletLoading || morphoHoldings.isLoading ? (
+                            <Skeleton width="8rem" height="2rem" />
+                        ) : (
+                            <h1 className="text-2xl md:text-3xl font-bold">
+                                {morphoUsdValue}
+                            </h1>
+                        )}
+                        <svg 
+                            width="16" 
+                            height="16" 
+                            viewBox="0 0 24 24" 
+                            fill="none" 
+                            className={`transition-transform ${morphoVaultsOpen ? 'rotate-180' : ''}`}
+                        >
+                            <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                    </div>
+                </div>
+                <div className="flex flex-col items-start w-full md:w-auto">
+                    <h1 className="text-sm md:text-md text-left text-[var(--foreground-secondary)]">
+                        Liquid Assets
+                    </h1>
                     <div 
                         ref={liquidAssets.refs.setReference}
                         {...liquidAssetsInteractions.getReferenceProps()}
                         className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
                     >
-                        <h1 className="text-3xl font-bold">
-                            {walletLoading ? 'Loading...' : liquidUsdValue}
-                        </h1>
+                        {walletLoading ? (
+                            <Skeleton width="8rem" height="2rem" />
+                        ) : (
+                            <h1 className="text-2xl md:text-3xl font-bold">
+                                {liquidUsdValue}
+                            </h1>
+                        )}
                         <svg 
                             width="16" 
                             height="16" 
@@ -163,29 +231,6 @@ export default function WalletOverview() {
                         </svg>
                     </div>
                 </div>
-                <div className="flex flex-col items-start">
-                        <h1 className="text-md text-left text-[var(--foreground-secondary)]">
-                           In Morpho Vaults
-                        </h1>
-                   <div 
-                        ref={morphoVaults.refs.setReference}
-                        {...morphoVaultsInteractions.getReferenceProps()}
-                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                    >
-                       <h1 className="text-3xl font-bold">
-                           {walletLoading ? 'Loading...' : morphoUsdValue}
-                       </h1>
-                       <svg 
-                            width="16" 
-                            height="16" 
-                            viewBox="0 0 24 24" 
-                            fill="none" 
-                            className={`transition-transform ${morphoVaultsOpen ? 'rotate-180' : ''}`}
-                        >
-                            <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                   </div>
-               </div>
             </div>
             
             {/* Total Assets Dropdown */}
@@ -195,57 +240,36 @@ export default function WalletOverview() {
                         ref={totalAssets.refs.setFloating}
                         style={totalAssets.floatingStyles}
                         {...totalAssetsInteractions.getFloatingProps()}
-                        className="bg-[var(--surface-elevated)] rounded-lg p-3 shadow-lg border border-[var(--border-subtle)] min-w-[200px] z-[9999]"
+                        className="bg-[var(--surface-elevated)] rounded-lg p-4 shadow-lg border border-[var(--border-subtle)] min-w-[280px] z-[9999]"
                     >
-                    <div className="flex flex-col gap-2">
-                        {/* Liquid Assets Section */}
-                        <div className="text-xs text-[var(--foreground-secondary)] mb-1">
-                            Liquid Assets
+                    <div className="flex flex-col gap-3">
+                        {/* Liquid Assets Total */}
+                        <div className="flex justify-between items-center gap-4">
+                            <span className="text-sm font-medium text-[var(--foreground)] whitespace-nowrap">
+                                Liquid Assets
+                            </span>
+                            <span className="text-sm text-[var(--foreground)] font-medium whitespace-nowrap">
+                                {liquidUsdValue}
+                            </span>
                         </div>
-                        {sortedLiquidAssets.map((asset) => (
-                            <div key={asset.symbol} className="flex justify-between items-center py-1">
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium text-[var(--foreground)]">
-                                        {asset.symbol}
-                                    </span>
-                                    <span className="text-xs text-[var(--foreground-secondary)]">
-                                        {formatNumber(asset.formatted, {
-                                            minimumFractionDigits: 0,
-                                            maximumFractionDigits: asset.decimals ?? 18,
-                                        })}
-                                    </span>
-                                </div>
-                                <span className="text-sm text-[var(--foreground)]">
-                                    {formatCurrency(asset.usdValue)}
-                                </span>
-                            </div>
-                        ))}
                         
-                        {/* Vault Assets Section */}
-                        <div className="border-t border-[var(--border-subtle)] pt-2 mt-2">
-                            <div className="text-xs text-[var(--foreground-secondary)] mb-1">
-                                In Vaults
-                            </div>
-                            <div className="flex justify-between items-center py-1">
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium text-[var(--foreground)]">
-                                        Vault Positions
-                                    </span>
-                                    
-                                </div>
-                                <span className="text-sm text-[var(--success)]">
-                                    {morphoUsdValue}
-                                </span>
-                            </div>
+                        {/* Morpho Vaults Total */}
+                        <div className="flex justify-between items-center gap-4">
+                            <span className="text-sm font-medium text-[var(--foreground)] whitespace-nowrap">
+                                In Morpho Vaults
+                            </span>
+                            <span className="text-sm text-[var(--foreground)] font-medium whitespace-nowrap">
+                                {morphoUsdValue}
+                            </span>
                         </div>
                         
                         {/* Total */}
-                        <div className="border-t border-[var(--border-subtle)] pt-2 mt-2">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-semibold text-[var(--foreground)]">
+                        <div className="border-t border-[var(--border-subtle)] pt-3 mt-1">
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
                                     Total Assets
                                 </span>
-                                <span className="text-sm font-semibold text-[var(--foreground)]">
+                                <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
                                     {totalUsdValue}
                                 </span>
                             </div>
@@ -262,33 +286,33 @@ export default function WalletOverview() {
                         ref={liquidAssets.refs.setFloating}
                         style={liquidAssets.floatingStyles}
                         {...liquidAssetsInteractions.getFloatingProps()}
-                        className="bg-[var(--surface-elevated)] rounded-lg p-3 shadow-lg border border-[var(--border-subtle)] min-w-[200px] z-[9999]"
+                        className="bg-[var(--surface-elevated)] rounded-lg p-4 shadow-lg border border-[var(--border-subtle)] min-w-[280px] z-[9999]"
                     >
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-3">
                         {sortedLiquidAssets.map((asset) => (
-                            <div key={asset.symbol} className="flex justify-between items-center py-1">
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium text-[var(--foreground)]">
+                            <div key={asset.symbol} className="flex justify-between items-center gap-4">
+                                <div className="flex flex-col min-w-0 flex-1">
+                                    <span className="text-sm font-medium text-[var(--foreground)] whitespace-nowrap">
                                         {asset.symbol}
                                     </span>
-                                    <span className="text-xs text-[var(--foreground-secondary)]">
+                                    <span className="text-xs text-[var(--foreground-secondary)] whitespace-nowrap">
                                         {formatNumber(asset.formatted, {
                                             minimumFractionDigits: 0,
                                             maximumFractionDigits: asset.decimals ?? 18,
                                         })}
                                     </span>
                                 </div>
-                                <span className="text-sm text-[var(--foreground)]">
+                                <span className="text-sm text-[var(--foreground)] font-medium whitespace-nowrap">
                                     {formatCurrency(asset.usdValue)}
                                 </span>
                             </div>
                         ))}
-                        <div className="border-t border-[var(--border-subtle)] pt-2 mt-1">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-semibold text-[var(--foreground)]">
+                        <div className="border-t border-[var(--border-subtle)] pt-3 mt-1">
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
                                     Total
                                 </span>
-                                <span className="text-sm font-semibold text-[var(--foreground)]">
+                                <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
                                     {liquidUsdValue}
                                 </span>
                             </div>
@@ -305,26 +329,51 @@ export default function WalletOverview() {
                         ref={morphoVaults.refs.setFloating}
                         style={morphoVaults.floatingStyles}
                         {...morphoVaultsInteractions.getFloatingProps()}
-                        className="bg-[var(--surface-elevated)] rounded-lg p-3 shadow-lg border border-[var(--border-subtle)] min-w-[200px] z-[9999]"
+                        className="bg-[var(--surface-elevated)] rounded-lg p-4 shadow-lg border border-[var(--border-subtle)] min-w-[280px] z-[9999]"
                     >
-                    <div className="flex flex-col gap-2">
-                        <div className="text-sm text-[var(--foreground-secondary)]">
-                            Vault positions coming soon...
-                        </div>
-                        <div className="border-t border-[var(--border-subtle)] pt-2 mt-1">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-semibold text-[var(--foreground)]">
-                                    Total
-                                </span>
-                                <span className="text-sm font-semibold text-[var(--foreground)]">
-                                    {morphoUsdValue}
-                                </span>
+                    <div className="flex flex-col gap-3">
+                        {morphoHoldings.isLoading ? (
+                            <>
+                                {Array.from({ length: 3 }).map((_, index) => (
+                                    <div key={index} className="flex justify-between items-center gap-4">
+                                        <Skeleton width="8rem" height="1rem" />
+                                        <Skeleton width="5rem" height="1rem" />
+                                    </div>
+                                ))}
+                            </>
+                        ) : sortedVaultPositions.length > 0 ? (
+                            sortedVaultPositions.map((position) => (
+                                <div key={position.address} className="flex justify-between items-center gap-4">
+                                    <span className="text-sm font-medium text-[var(--foreground)] whitespace-nowrap">
+                                        {position.name}
+                                    </span>
+                                    <span className="text-sm text-[var(--foreground)] font-medium whitespace-nowrap">
+                                        {formatCurrency(position.usdValue)}
+                                    </span>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-sm text-[var(--foreground-secondary)]">
+                                No vault positions
                             </div>
-                        </div>
+                        )}
+                        {!morphoHoldings.isLoading && (
+                            <div className="border-t border-[var(--border-subtle)] pt-3 mt-1">
+                                <div className="flex justify-between items-center gap-4">
+                                    <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
+                                        Total
+                                    </span>
+                                    <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
+                                        {morphoUsdValue}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
                 </FloatingPortal>
             )}
+
 
         </div>
     )
