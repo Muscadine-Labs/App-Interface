@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
-import { formatSmartCurrency, formatAssetAmount, formatDate, formatCurrency } from '@/lib/formatter';
+import { formatAssetAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -172,14 +172,14 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                       <span className="text-sm font-medium text-[var(--foreground)] capitalize">
                         {tx.type}
                       </span>
-                      {tx.assetsUsd !== undefined && tx.assetsUsd > 0 && (
+                      {tx.assets && (
                         <span className="text-sm text-[var(--foreground)] font-medium">
-                          {formatSmartCurrency(tx.assetsUsd)}
+                          {formatAssetAmount(BigInt(tx.assets), vaultData.assetDecimals || 18, vaultData.symbol)}
                         </span>
                       )}
-                      {tx.assetsUsd === 0 && tx.assets && (
-                        <span className="text-sm text-[var(--foreground-muted)]">
-                          {formatAssetAmount(BigInt(tx.assets), vaultData.assetDecimals || 18, vaultData.symbol)}
+                      {tx.assetsUsd !== undefined && tx.assetsUsd > 0 && (
+                        <span className="text-sm text-[var(--foreground-secondary)]">
+                          ({formatCurrency(tx.assetsUsd)})
                         </span>
                       )}
                     </div>

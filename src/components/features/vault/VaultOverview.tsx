@@ -40,7 +40,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const { error: showErrorToast } = useToast();
 
   // Format liquidity
-  const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity);
+  const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
   const liquidityRaw = formatAssetAmount(
     BigInt(vaultData.totalAssets || '0'),
     vaultData.assetDecimals || 18,
@@ -87,11 +87,23 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     if (historyData.length === 0 || chartType !== 'apy') return undefined;
     
     const apyValues = historyData.map(d => d.apy).filter(v => v !== null && v !== undefined && !isNaN(v));
-    return calculateYAxisDomain(apyValues, {
+    if (apyValues.length === 0) return undefined;
+    
+    const domain = calculateYAxisDomain(apyValues, {
       bottomPaddingPercent: 0.5,
       topPaddingPercent: 0.2,
       thresholdPercent: 0.01,
     });
+    
+    if (!domain) return undefined;
+    
+    // If max APY is 0.01 (1%) or lower, ensure 0 is included
+    const maxApy = Math.max(...apyValues);
+    if (maxApy <= 0.01) {
+      return [0, domain[1]];
+    }
+    
+    return domain;
   }, [historyData, chartType]);
 
   // Memoize chart data for TVL chart to avoid recalculating on every render

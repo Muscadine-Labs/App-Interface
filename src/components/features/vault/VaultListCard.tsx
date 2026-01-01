@@ -167,7 +167,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
                                 {formatPercentage(vaultData.apy)} APY
                             </span>
                             <span className="text-xs md:text-sm text-foreground-secondary">
-                                {formatSmartCurrency(vaultData.totalValueLocked)} TVL
+                                {formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })} TVL
                             </span>
                         </div>
                     )}
