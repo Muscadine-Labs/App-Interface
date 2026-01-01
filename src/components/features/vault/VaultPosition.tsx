@@ -514,6 +514,9 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     router.push(`/transactions?vault=${vaultData.address}&action=withdraw`);
   };
 
+  // Format APY
+  const apyPercent = formatPercentage(vaultData.apy);
+
   return (
     <div className="space-y-6">
       {/* Position Value */}
