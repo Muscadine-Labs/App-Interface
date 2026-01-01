@@ -752,7 +752,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (valueType === 'usd') {
-                          return formatSmartCurrency(value / 1000).replace('$', '$').replace('K', 'k');
+                          return formatSmartCurrency(value / 1000).replace('K', 'k');
                         } else {
                           // Format token amount
                           if (value >= 1000) {
