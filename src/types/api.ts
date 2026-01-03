@@ -78,17 +78,6 @@ export interface Allocation {
   supplyAssetsUsd?: string;
 }
 
-export interface AllocationHistoryPoint {
-  timestamp: number;
-  date: string;
-  totalAssetsUsd: number;
-  allocations: Record<string, {
-    value: number;
-    percentage: number;
-    marketName: string;
-  }>;
-}
-
 // History Types
 export interface HistoryDataPoint {
   x: number;
