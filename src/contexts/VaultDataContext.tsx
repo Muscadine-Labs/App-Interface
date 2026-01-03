@@ -68,6 +68,14 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   
   // Request deduplication maps with cleanup mechanism
   const pendingRequests = React.useRef<Map<string, Promise<void>>>(new Map());
+  
+  // Ref to track current vaultData to avoid dependency issues
+  const vaultDataRef = React.useRef<VaultDataState>(vaultData);
+  
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    vaultDataRef.current = vaultData;
+  }, [vaultData]);
 
   // Cleanup old pending requests periodically to prevent memory leaks
   React.useEffect(() => {
@@ -94,11 +102,14 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     const cacheKey = `vault-complete-${address}-${effectiveChainId}`;
     
     // Check if we already have fresh data (unless forcing refresh)
-    if (!shouldForceRefresh && 
-        vaultData[address] && 
-        vaultData[address].basic && 
-        !isDataStale(vaultData[address].lastFetched)) {
-      return;
+    // Use ref to read current state without adding to dependencies
+    if (!shouldForceRefresh) {
+      const currentVaultData = vaultDataRef.current[address];
+      if (currentVaultData && 
+          currentVaultData.basic && 
+          !isDataStale(currentVaultData.lastFetched)) {
+        return;
+      }
     }
 
     // Request deduplication
@@ -239,7 +250,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
 
     pendingRequests.current.set(cacheKey, fetchPromise);
     return fetchPromise;
-  }, [vaultData, isDataStale]);
+  }, [isDataStale]);
 
 
 
