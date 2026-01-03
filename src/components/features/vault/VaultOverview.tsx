@@ -19,6 +19,8 @@ interface HistoryDataPoint {
   totalAssetsUsd: number;
   totalAssets?: number;
   apy: number;
+  sharePriceUsd?: number;
+  assetPriceUsd?: number;
 }
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
@@ -31,11 +33,14 @@ const PERIOD_SECONDS: Record<Period, number> = {
   '1y': 365 * 24 * 60 * 60,
 };
 
+// Minimum timestamp: October 7, 2025 00:00:00 UTC
+const MIN_TIMESTAMP = 1759795200;
+
 export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [period, setPeriod] = useState<Period>('all');
   const [allHistoryData, setAllHistoryData] = useState<HistoryDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [chartType, setChartType] = useState<'apy' | 'tvl'>('apy');
+  const [chartType, setChartType] = useState<'apy' | 'tvl' | 'sharePrice'>('apy');
   const [valueType, setValueType] = useState<'usd' | 'token'>('token');
   const { error: showErrorToast } = useToast();
 
@@ -63,15 +68,18 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     // Find the first non-zero value based on chart type
     // For APY chart, filter out zero APY values
     // For TVL chart, filter out zero totalAssetsUsd/totalAssets values
+    // For Share Price chart, filter out zero sharePriceUsd values
     if (filtered.length > 0) {
       let firstNonZeroIndex = -1;
       
       if (chartType === 'apy') {
         firstNonZeroIndex = filtered.findIndex(d => d.apy > 0);
-      } else {
+      } else if (chartType === 'tvl') {
         firstNonZeroIndex = filtered.findIndex(d => 
           (valueType === 'usd' ? d.totalAssetsUsd : (d.totalAssets || 0)) > 0
         );
+      } else if (chartType === 'sharePrice') {
+        firstNonZeroIndex = filtered.findIndex(d => (d.sharePriceUsd || 0) > 0);
       }
       
       if (firstNonZeroIndex > 0) {
@@ -115,6 +123,43 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }));
   }, [historyData, chartType, valueType]);
 
+  // Memoize chart data for Share Price chart
+  const sharePriceChartData = useMemo(() => {
+    if (chartType !== 'sharePrice') return [];
+    return historyData.map(item => {
+      const sharePriceUsd = item.sharePriceUsd || 0;
+      // Calculate asset price: use from history if available, otherwise calculate from current vault data
+      const assetPriceUsd = item.assetPriceUsd || (item.totalAssets && item.totalAssets > 0 && item.totalAssetsUsd > 0 
+        ? item.totalAssetsUsd / item.totalAssets 
+        : (vaultData.totalValueLocked && vaultData.totalAssets 
+          ? vaultData.totalValueLocked / (parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18))
+          : 1));
+      const sharePriceToken = assetPriceUsd > 0 ? sharePriceUsd / assetPriceUsd : 0;
+      
+      return {
+        ...item,
+        valueUsd: sharePriceUsd,
+        valueToken: sharePriceToken,
+        value: valueType === 'usd' ? sharePriceUsd : sharePriceToken,
+      };
+    });
+  }, [historyData, chartType, valueType, vaultData.totalValueLocked, vaultData.totalAssets, vaultData.assetDecimals]);
+
+  // Calculate Y-axis domain for Share Price chart
+  const sharePriceYAxisDomain = useMemo(() => {
+    if (sharePriceChartData.length === 0 || chartType !== 'sharePrice') return undefined;
+    
+    const values = sharePriceChartData.map(d => d.value).filter(v => v !== null && v !== undefined && !isNaN(v) && v > 0);
+    if (values.length === 0) return undefined;
+    
+    return calculateYAxisDomain(values, {
+      bottomPaddingPercent: 0.25,
+      topPaddingPercent: 0.2,
+      thresholdPercent: valueType === 'usd' ? 0.02 : undefined,
+      filterPositiveOnly: true,
+    });
+  }, [sharePriceChartData, chartType, valueType]);
+
   // Calculate Y-axis domain for Total Deposits chart
   const tvlYAxisDomain = useMemo(() => {
     if (tvlChartData.length === 0 || chartType !== 'tvl') return undefined;
@@ -135,9 +180,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     const fetchAllHistory = async () => {
       setLoading(true);
       try {
-        // Always fetch 1y worth of data to get all available history
+        // Fetch all available history data
         const response = await fetch(
-          `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=1y`
+          `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=all`
         );
         
         // Validate HTTP response
@@ -188,10 +233,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     const periods: Period[] = ['all'];
     
     // Only add periods that are <= the available data range
+    // Hide '1y' if vault was created in the last year (has less than 1 year of data)
+    // Only show '1y' if vault has 1 year or more of data (was not created in the last year)
     if (dataRangeSeconds >= PERIOD_SECONDS['1y']) {
       periods.push('1y');
     }
-    if (dataRangeSeconds >= PERIOD_SECONDS['90d']) {
+    // Only show '90d' if 90 days ago is after Oct 7, 2025
+    if (dataRangeSeconds >= PERIOD_SECONDS['90d'] && (now - PERIOD_SECONDS['90d']) >= MIN_TIMESTAMP) {
       periods.push('90d');
     }
     if (dataRangeSeconds >= PERIOD_SECONDS['30d']) {
@@ -514,6 +562,19 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
             )}
           </button>
+          <button
+            onClick={() => setChartType('sharePrice')}
+            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+              chartType === 'sharePrice'
+                ? 'text-[var(--foreground)]'
+                : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            Share Price
+            {chartType === 'sharePrice' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+            )}
+          </button>
         </div>
 
         {/* Controls Row */}
@@ -535,8 +596,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             ))}
           </div>
           
-          {/* Value Type Toggle - Only show for Total Deposits chart */}
-          {chartType === 'tvl' && (
+          {/* Value Type Toggle - Show for Total Deposits and Share Price charts */}
+          {(chartType === 'tvl' || chartType === 'sharePrice') && (
             <div className="flex items-center gap-2 bg-[var(--surface)] rounded-lg p-1">
               <button
                 onClick={() => setValueType('usd')}
@@ -630,6 +691,77 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                     <Line 
                       type="monotone" 
                       dataKey="apy" 
+                      stroke="var(--primary)" 
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                ) : chartType === 'sharePrice' ? (
+                  <LineChart data={sharePriceChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                    <XAxis 
+                      dataKey="timestamp" 
+                      tickFormatter={formatDate}
+                      stroke="var(--foreground-secondary)"
+                      style={{ fontSize: '12px' }}
+                      ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                    />
+                    <YAxis 
+                      domain={sharePriceYAxisDomain}
+                      tickFormatter={(value) => {
+                        if (value === undefined || typeof value !== 'number') return '';
+                        if (valueType === 'usd') {
+                          if (value < 1000) {
+                            return '$' + formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          }
+                          return '$' + formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
+                        } else {
+                          // Format token amount
+                          if (value >= 1000) {
+                            return formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
+                          } else {
+                            return formatNumber(value, { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+                          }
+                        }
+                      }}
+                      stroke="var(--foreground-secondary)"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--surface-elevated)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: '8px',
+                      }}
+                      labelFormatter={(label) => {
+                        const timestamp = typeof label === 'number' ? label : parseFloat(String(label));
+                        return `Date: ${formatTooltipDate(timestamp)}`;
+                      }}
+                      formatter={(value) => {
+                        if (value === undefined || typeof value !== 'number') return ['', 'Share Price'];
+                        if (valueType === 'usd') {
+                          return [formatSmartCurrency(value, { alwaysTwoDecimals: true }), 'Share Price (USD)'];
+                        } else {
+                          // Format token amount
+                          if (value >= 1000) {
+                            const valueInK = value / 1000;
+                            return [formatNumber(valueInK, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + `k ${vaultData.symbol || 'Token'}`, 'Share Price'];
+                          } else {
+                            return [
+                              formatAssetAmount(
+                                BigInt(Math.floor(value * Math.pow(10, vaultData.assetDecimals || 18))),
+                                vaultData.assetDecimals || 18,
+                                vaultData.symbol
+                              ),
+                              'Share Price'
+                            ];
+                          }
+                        }
+                      }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="value" 
                       stroke="var(--primary)" 
                       strokeWidth={2}
                       dot={false}

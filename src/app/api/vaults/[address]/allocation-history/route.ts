@@ -256,7 +256,8 @@ export async function GET(
         totalAssetsUsd: totalAssets,
         allocations,
       };
-    });
+    })
+    .filter(item => item.timestamp >= 1759276800); // Filter out data before October 1, 2025 00:00:00 UTC
 
 
     return NextResponse.json({

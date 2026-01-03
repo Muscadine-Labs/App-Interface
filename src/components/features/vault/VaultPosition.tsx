@@ -42,6 +42,9 @@ const TIME_FRAME_SECONDS: Record<TimeFrame, number> = {
   '7D': 7 * 24 * 60 * 60,
 };
 
+// Minimum timestamp: October 7, 2025 00:00:00 UTC
+const MIN_TIMESTAMP = 1759795200;
+
 const formatDate = (timestamp: number) => {
   const date = new Date(timestamp * 1000);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -108,7 +111,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
             `/api/vaults/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`
           ),
           fetch(
-            `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=1y`
+            `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=all`
           )
         ]);
         
@@ -168,26 +171,28 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           // Since we don't have historical totalSupply, we estimate share price growth
           // by using the ratio of historical totalAssetsUsd to current totalAssetsUsd
           // This assumes share price grows proportionally to vault value
-          const historicalData = historyData.history.map((point: { 
-            timestamp: number; 
-            totalAssetsUsd: number; 
-            totalAssets: number;
-            assetPriceUsd?: number;
-            sharePriceUsd?: number;
-          }) => {
-            const totalAssetsDecimal = point.totalAssets || 0;
-            // Use sharePriceUsd from API if available (from GraphQL), otherwise fallback to calculation
-            const historicalSharePriceUsd = point.sharePriceUsd || sharePriceUsd;
-            const historicalAssetPriceUsd = point.assetPriceUsd || vaultData.sharePrice || 1;
-            
-            return {
-              timestamp: point.timestamp,
-              totalAssetsUsd: point.totalAssetsUsd,
-              totalAssets: totalAssetsDecimal,
-              sharePriceUsd: historicalSharePriceUsd,
-              assetPriceUsd: historicalAssetPriceUsd,
-            };
-          });
+          const historicalData = historyData.history
+            .filter((point: { timestamp: number }) => point.timestamp >= MIN_TIMESTAMP) // Filter out data before Oct 7, 2025
+            .map((point: { 
+              timestamp: number; 
+              totalAssetsUsd: number; 
+              totalAssets: number;
+              assetPriceUsd?: number;
+              sharePriceUsd?: number;
+            }) => {
+              const totalAssetsDecimal = point.totalAssets || 0;
+              // Use sharePriceUsd from API if available (from GraphQL), otherwise fallback to calculation
+              const historicalSharePriceUsd = point.sharePriceUsd || sharePriceUsd;
+              const historicalAssetPriceUsd = point.assetPriceUsd || vaultData.sharePrice || 1;
+              
+              return {
+                timestamp: point.timestamp,
+                totalAssetsUsd: point.totalAssetsUsd,
+                totalAssets: totalAssetsDecimal,
+                sharePriceUsd: historicalSharePriceUsd,
+                assetPriceUsd: historicalAssetPriceUsd,
+              };
+            });
           
           setHistoricalVaultData(historicalData);
         } else {
@@ -389,7 +394,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     if (dataRangeSeconds >= TIME_FRAME_SECONDS['1Y']) {
       frames.push('1Y');
     }
-    if (dataRangeSeconds >= TIME_FRAME_SECONDS['90D']) {
+    // Only show '90D' if 90 days ago is after Oct 7, 2025
+    if (dataRangeSeconds >= TIME_FRAME_SECONDS['90D'] && (now - TIME_FRAME_SECONDS['90D']) >= MIN_TIMESTAMP) {
       frames.push('90D');
     }
     if (dataRangeSeconds >= TIME_FRAME_SECONDS['30D']) {
