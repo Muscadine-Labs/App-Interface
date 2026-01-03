@@ -20,18 +20,6 @@ interface VaultPositionProps {
   vaultData: MorphoVaultData;
 }
 
-interface Transaction {
-  id: string;
-  type: 'deposit' | 'withdraw' | 'event';
-  timestamp: number;
-  blockNumber?: number;
-  transactionHash?: string;
-  user?: string;
-  assets?: string;
-  shares?: string;
-  assetsUsd?: number;
-}
-
 type TimeFrame = 'all' | '1Y' | '90D' | '30D' | '7D';
 
 const TIME_FRAME_SECONDS: Record<TimeFrame, number> = {
@@ -55,27 +43,21 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { error: showErrorToast } = useToast();
-  const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
   const [valueType, setValueType] = useState<'usd' | 'token'>('token');
   const [isTimeFrameMenuOpen, setIsTimeFrameMenuOpen] = useState(false);
-  const [historicalVaultData, setHistoricalVaultData] = useState<Array<{
+  const [userPositionHistory, setUserPositionHistory] = useState<Array<{
     timestamp: number;
-    totalAssetsUsd: number;
-    totalAssets: number;
-    sharePriceUsd: number;
-    assetPriceUsd?: number;
+    assets: number;
+    assetsUsd: number;
+    shares: number;
   }>>([]);
 
   // Find the current vault position
   const currentVaultPosition = morphoHoldings.positions.find(
     pos => pos.vault.address.toLowerCase() === vaultData.address.toLowerCase()
   );
-
-  // Extract stable values from currentVaultPosition for dependency tracking
-  const currentSharePriceUsd = currentVaultPosition?.vault.state.sharePriceUsd;
-  const currentTotalSupply = currentVaultPosition?.vault.state.totalSupply;
 
   const userVaultValueUsd = useMemo(() => {
     if (!currentVaultPosition) return 0;
@@ -97,288 +79,67 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   }, [currentVaultPosition, vaultData.totalAssets, vaultData.totalValueLocked, vaultData.assetDecimals]);
 
   useEffect(() => {
-    const fetchActivity = async () => {
+    const fetchPositionHistory = async () => {
       if (!address) {
-        setUserTransactions([]);
+        setUserPositionHistory([]);
         setLoading(false);
         return;
       }
 
       setLoading(true);
       try {
-        const [userResponse, historyResponse] = await Promise.all([
-          fetch(
-            `/api/vaults/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`
-          ),
-          fetch(
-            `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=all`
-          )
-        ]);
+        const response = await fetch(
+          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=all`
+        );
         
-        // Parse responses even if status is not ok (API may return error in JSON body)
-        const userResponseData = await userResponse.json().catch(() => ({}));
-        const historyData = await historyResponse.json().catch(() => ({}));
+        const data = await response.json().catch(() => ({}));
         
         // Check for errors in response body (API returns 200 with error field for graceful errors)
-        if (userResponseData.error) {
+        if (data.error) {
           logger.warn(
-            'Activity API returned error',
+            'Position history API returned error',
             { 
-              error: userResponseData.error,
+              error: data.error,
               vaultAddress: vaultData.address, 
               userAddress: address 
             }
           );
         }
-        if (historyData.error) {
-          logger.warn(
-            'History API returned error',
-            { 
-              error: historyData.error,
-              vaultAddress: vaultData.address 
-            }
-          );
-        }
         
-        // Set transactions - use empty array if error or invalid response
-        if (userResponseData && typeof userResponseData === 'object' && Array.isArray(userResponseData.transactions)) {
-          setUserTransactions(userResponseData.transactions);
+        // Set position history - use empty array if error or invalid response
+        if (data && typeof data === 'object' && Array.isArray(data.history)) {
+          setUserPositionHistory(data.history);
         } else {
-          setUserTransactions([]);
-        }
-
-        // Update asset price/decimals from activity response when available
-        // Asset decimals available but not used in this component
-
-        // Asset price resolved but not used in this component
-        
-        if (historyData.history && Array.isArray(historyData.history) && historyData.history.length > 0) {
-          // Calculate historical share prices from totalAssetsUsd and totalAssets
-          // sharePriceUsd = totalAssetsUsd / totalSupply
-          // We can estimate sharePriceUsd from totalAssetsUsd if we know the current ratio
-          const totalSupplyDecimal = currentTotalSupply 
-            ? parseFloat(currentTotalSupply) / WEI_PER_ETHER 
-            : 0;
-          const currentTotalAssetsUsd = vaultData.totalValueLocked || 0;
-          const sharePriceUsd = currentSharePriceUsd 
-            ? currentSharePriceUsd 
-            : (totalSupplyDecimal > 0 && currentTotalAssetsUsd > 0 
-                ? currentTotalAssetsUsd / totalSupplyDecimal 
-                : 1);
-          
-          // Calculate historical share prices using actual historical asset prices
-          // sharePriceUsd = totalAssetsUsd / totalSupply
-          // Since we don't have historical totalSupply, we estimate share price growth
-          // by using the ratio of historical totalAssetsUsd to current totalAssetsUsd
-          // This assumes share price grows proportionally to vault value
-          const historicalData = historyData.history
-            .filter((point: { timestamp: number }) => point.timestamp >= MIN_TIMESTAMP) // Filter out data before Oct 7, 2025
-            .map((point: { 
-              timestamp: number; 
-              totalAssetsUsd: number; 
-              totalAssets: number;
-              assetPriceUsd?: number;
-              sharePriceUsd?: number;
-            }) => {
-              const totalAssetsDecimal = point.totalAssets || 0;
-              // Use sharePriceUsd from API if available (from GraphQL), otherwise fallback to calculation
-              const historicalSharePriceUsd = point.sharePriceUsd || sharePriceUsd;
-              const historicalAssetPriceUsd = point.assetPriceUsd || vaultData.sharePrice || 1;
-              
-              return {
-                timestamp: point.timestamp,
-                totalAssetsUsd: point.totalAssetsUsd,
-                totalAssets: totalAssetsDecimal,
-                sharePriceUsd: historicalSharePriceUsd,
-                assetPriceUsd: historicalAssetPriceUsd,
-              };
-            });
-          
-          setHistoricalVaultData(historicalData);
-        } else {
-          setHistoricalVaultData([]);
+          setUserPositionHistory([]);
         }
       } catch (error) {
         logger.error(
-          'Failed to fetch vault position data',
+          'Failed to fetch vault position history',
           error instanceof Error ? error : new Error(String(error)),
           { vaultAddress: vaultData.address, userAddress: address, chainId: vaultData.chainId }
         );
-        setUserTransactions([]);
-        setHistoricalVaultData([]);
+        setUserPositionHistory([]);
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchActivity();
-  }, [vaultData, address, currentSharePriceUsd, currentTotalSupply, currentVaultPosition?.vault.state?.sharePriceUsd, showErrorToast]);
+    fetchPositionHistory();
+  }, [vaultData, address, showErrorToast]);
 
-  // Calculate share price in asset terms (tokens per share)
-  const sharePriceInAsset = useMemo(() => {
-    // Calculate from totalAssets/totalSupply (most accurate)
-    if (currentVaultPosition && vaultData.totalAssets) {
-      const totalSupplyDecimal = parseFloat(currentVaultPosition.vault.state.totalSupply) / WEI_PER_ETHER;
-      const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18);
-      
-      if (totalSupplyDecimal > 0 && totalAssetsDecimal > 0) {
-        const calculated = totalAssetsDecimal / totalSupplyDecimal;
-        if (calculated > 0 && isFinite(calculated)) {
-          return calculated;
-        }
-      }
-    }
-    
-    // Fallback: use current position calculation
-    if (currentVaultPosition && userVaultAssetAmount > 0) {
-      const sharesDecimal = parseFloat(currentVaultPosition.shares) / WEI_PER_ETHER;
-      if (sharesDecimal > 0) {
-        const calculated = userVaultAssetAmount / sharesDecimal;
-        if (calculated > 0 && isFinite(calculated)) {
-          return calculated;
-        }
-      }
-    }
-    
-    return 0;
-  }, [currentVaultPosition, vaultData.totalAssets, vaultData.assetDecimals, userVaultAssetAmount]);
-
-  // Calculate user's position history using actual GraphQL data points
+  // Use GraphQL position history data directly - no calculation needed
   const userDepositHistory = useMemo(() => {
-    // Always use GraphQL data points, even if user has no transactions yet
-    if (historicalVaultData.length === 0) return [];
+    if (userPositionHistory.length === 0) return [];
 
-    const currentSharesWei = currentVaultPosition 
-      ? BigInt(currentVaultPosition.shares) 
-      : BigInt(0);
-    
-    // Calculate current asset amount - use userVaultAssetAmount if available, otherwise calculate from shares
-    const currentAssetsWei = (() => {
-      if (userVaultAssetAmount > 0) {
-        return BigInt(Math.floor(userVaultAssetAmount * Math.pow(10, vaultData.assetDecimals || 18)));
-      }
-      if (currentVaultPosition && sharePriceInAsset > 0) {
-        const sharesDecimal = parseFloat(currentVaultPosition.shares) / WEI_PER_ETHER;
-        const assetAmount = sharesDecimal * sharePriceInAsset;
-        return BigInt(Math.floor(assetAmount * Math.pow(10, vaultData.assetDecimals || 18)));
-      }
-      return BigInt(0);
-    })();
-    
-    // Build map of user's shares/assets at each transaction timestamp
-    const sorted = [...userTransactions].sort((a, b) => b.timestamp - a.timestamp);
-    const sharesAtTimestamp = new Map<number, bigint>();
-    const assetsAtTimestamp = new Map<number, bigint>();
-    
-    const now = Math.floor(Date.now() / 1000);
-    sharesAtTimestamp.set(now, currentSharesWei);
-    assetsAtTimestamp.set(now, currentAssetsWei);
-    
-    let runningShares = currentSharesWei;
-    let runningAssets = currentAssetsWei;
-    
-    for (const tx of sorted) {
-      const txSharesWei = tx.shares ? BigInt(tx.shares) : BigInt(0);
-      let txAssetsWei = tx.assets ? BigInt(tx.assets) : BigInt(0);
-      
-      // If assets not available in transaction, estimate from shares using current share price
-      if (txAssetsWei === BigInt(0) && txSharesWei > BigInt(0) && sharePriceInAsset > 0) {
-        const txSharesDecimal = Number(txSharesWei) / WEI_PER_ETHER;
-        const estimatedAssets = txSharesDecimal * sharePriceInAsset;
-        txAssetsWei = BigInt(Math.floor(estimatedAssets * Math.pow(10, vaultData.assetDecimals || 18)));
-      }
-      
-      sharesAtTimestamp.set(tx.timestamp, runningShares);
-      assetsAtTimestamp.set(tx.timestamp, runningAssets);
-      
-      if (tx.type === 'deposit') {
-        runningShares = runningShares > txSharesWei ? runningShares - txSharesWei : BigInt(0);
-        runningAssets = runningAssets > txAssetsWei ? runningAssets - txAssetsWei : BigInt(0);
-      } else if (tx.type === 'withdraw') {
-        runningShares = runningShares + txSharesWei;
-        runningAssets = runningAssets + txAssetsWei;
-      }
-    }
-    
-    if (sorted.length > 0) {
-      const oldestTx = sorted[sorted.length - 1];
-      sharesAtTimestamp.set(oldestTx.timestamp - 1, runningShares);
-      assetsAtTimestamp.set(oldestTx.timestamp - 1, runningAssets);
-    }
-    
-    // Helper function to get user's shares/assets at a given timestamp
-    const getUserPositionAtTimestamp = (timestamp: number): { shares: bigint; assets: bigint } => {
-      let foundTimestamp = -1;
-      let shares = BigInt(0);
-      let assets = BigInt(0);
-      
-      for (const [txTimestamp, txShares] of sharesAtTimestamp.entries()) {
-        if (txTimestamp <= timestamp && txTimestamp > foundTimestamp) {
-          foundTimestamp = txTimestamp;
-          shares = txShares;
-          assets = assetsAtTimestamp.get(txTimestamp) || BigInt(0);
-        }
-      }
-      
-      if (foundTimestamp === -1) {
-        if (timestamp >= now) {
-          shares = currentSharesWei;
-          assets = currentAssetsWei;
-        } else {
-          shares = BigInt(0);
-          assets = BigInt(0);
-        }
-      }
-      
-      return { shares, assets };
-    };
-    
-    // Use actual GraphQL data points - each point represents a daily snapshot
-    const dailyData: Array<{ timestamp: number; date: string; valueUsd: number; valueToken: number }> = [];
-    
-    // Sort historical data by timestamp
-    const sortedHistoricalData = [...historicalVaultData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    for (const historicalPoint of sortedHistoricalData) {
-      const { shares } = getUserPositionAtTimestamp(historicalPoint.timestamp);
-      const sharesDecimal = Number(shares) / WEI_PER_ETHER;
-      
-      // Use the historical share price from GraphQL data
-      const sharePriceUsdForDay = historicalPoint.sharePriceUsd;
-      
-      // Calculate USD value: shares * sharePriceUsd
-      const positionValueUsd = sharesDecimal * sharePriceUsdForDay;
-      
-      // Calculate token value using historical share price in asset terms
-      let positionValueToken = 0;
-      if (sharesDecimal > 0) {
-        // Get historical asset price for this day
-        const historicalAssetPriceUsd = historicalPoint.assetPriceUsd 
-          || (historicalPoint.totalAssets > 0 && historicalPoint.totalAssetsUsd > 0
-            ? historicalPoint.totalAssetsUsd / historicalPoint.totalAssets
-            : vaultData.sharePrice || 1);
-        
-        if (historicalAssetPriceUsd > 0 && sharePriceUsdForDay > 0) {
-          // sharePriceInAsset = sharePriceUsd / assetPriceUsd
-          const historicalSharePriceInAsset = sharePriceUsdForDay / historicalAssetPriceUsd;
-          positionValueToken = sharesDecimal * historicalSharePriceInAsset;
-        } else if (sharePriceInAsset > 0) {
-          // Fallback to current share price in asset
-          positionValueToken = sharesDecimal * sharePriceInAsset;
-        }
-      }
-      
-      dailyData.push({
-        timestamp: historicalPoint.timestamp,
-        date: formatDate(historicalPoint.timestamp),
-        valueUsd: Math.max(0, positionValueUsd),
-        valueToken: Math.max(0, positionValueToken),
-      });
-    }
-    
-    return dailyData;
-  }, [historicalVaultData, currentVaultPosition, userVaultAssetAmount, sharePriceInAsset, userTransactions, vaultData.assetDecimals, vaultData.sharePrice]);
+    // Map GraphQL position history to chart data format
+    return userPositionHistory.map((point) => ({
+      timestamp: point.timestamp,
+      date: formatDate(point.timestamp),
+      valueUsd: Math.max(0, point.assetsUsd),
+      valueToken: Math.max(0, point.assets),
+    }));
+  }, [userPositionHistory]);
 
   // Calculate available time frames based on data range
   const availableTimeFrames = useMemo(() => {
