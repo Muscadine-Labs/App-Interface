@@ -10,6 +10,10 @@ import { TransactionConfirmation } from './TransactionConfirmation';
 import { TransactionStatus as TransactionStatusComponent } from './TransactionStatus';
 import { useToast } from '@/contexts/ToastContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { useVaultData } from '@/contexts/VaultDataContext';
+
+import { logger } from '@/lib/logger';
+import { useRouter } from 'next/navigation';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -28,7 +32,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     setStatus,
   } = useTransactionState();
   const { success, error: showErrorToast } = useToast();
-  const { refreshBalances } = useWallet();
+  const { refreshBalancesWithPolling, morphoHoldings, refreshBalances } = useWallet();
+  const { fetchVaultData } = useVaultData();
+  const router = useRouter();
 
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
   const [prerequisiteReceipts, setPrerequisiteReceipts] = useState<Map<number, boolean>>(new Map());
@@ -102,13 +108,105 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   // Handle transaction receipt
   useEffect(() => {
     const hashToUse = currentTxHash || txHash;
+    
+    // Log receipt status for debugging
+    if (receipt) {
+      logger.info('Transaction receipt received', {
+        txHash: hashToUse,
+        blockNumber: receipt.blockNumber?.toString(),
+        status: receipt.status,
+        gasUsed: receipt.gasUsed?.toString(),
+        effectiveGasPrice: receipt.effectiveGasPrice?.toString(),
+        transactionStatus: status,
+      });
+    }
+    
     if (receipt && status === 'confirming' && hashToUse) {
+      logger.info('Transaction confirmed on-chain', {
+        txHash: hashToUse,
+        blockNumber: receipt.blockNumber?.toString(),
+        status: receipt.status,
+        timestamp: new Date().toISOString(),
+      });
+      
       success('Transaction confirmed!', 3000);
       setStatus('success', undefined, hashToUse);
-      // Refresh wallet balances immediately after transaction confirmation
-      refreshBalances();
+      
+      // Refresh all data immediately after transaction confirmation
+      const refreshData = async () => {
+        try {
+          // Immediate refresh of wallet balances
+          await refreshBalances();
+          
+          // Refresh vault data for vaults specifically involved in the transaction
+          const vaultsInTransaction = new Set<string>();
+          if (fromAccount?.type === 'vault') {
+            vaultsInTransaction.add((fromAccount as VaultAccount).address);
+          }
+          if (toAccount?.type === 'vault') {
+            vaultsInTransaction.add((toAccount as VaultAccount).address);
+          }
+          
+          // Refresh vaults involved in transaction
+          await Promise.allSettled(
+            Array.from(vaultsInTransaction).map(vaultAddress => 
+              fetchVaultData(vaultAddress, 8453, true).catch((err) => {
+                logger.error('Failed to refresh vault data', err, { vaultAddress, txHash: hashToUse });
+              })
+            )
+          );
+          
+          // Also refresh vault data for all vaults the user has positions in
+          const vaultsToRefresh = morphoHoldings.positions.map(pos => pos.vault.address);
+          await Promise.allSettled(
+            vaultsToRefresh.map(vaultAddress => 
+              fetchVaultData(vaultAddress, 8453, true).catch((err) => {
+                logger.error('Failed to refresh vault data', err, { vaultAddress, txHash: hashToUse });
+              })
+            )
+          );
+          
+          // Force Next.js to refresh server-side data
+          router.refresh();
+          
+          logger.info('Data refreshed successfully after transaction', {
+            txHash: hashToUse,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (error) {
+          logger.error('Error refreshing data after transaction', error, { txHash: hashToUse });
+        }
+      };
+      
+      refreshData();
+      
+      // Also use polling to refresh balances (waits for blockchain state to update)
+      // This ensures we get the updated balances even if there's a slight delay
+      logger.info('Refreshing wallet balances after transaction with polling', {
+        txHash: hashToUse,
+        timestamp: new Date().toISOString(),
+      });
+      
+      refreshBalancesWithPolling({
+        maxAttempts: 10, // Try up to 10 times (30 seconds total with 3s intervals)
+        intervalMs: 3000, // 3 seconds between attempts
+        onComplete: () => {
+          logger.info('Wallet balances refreshed successfully after transaction', {
+            txHash: hashToUse,
+            timestamp: new Date().toISOString(),
+          });
+        },
+      }).catch((err: unknown) => {
+        logger.error('Failed to refresh wallet balances after polling', err, { txHash: hashToUse });
+      });
+      
       // Don't auto-close - let user see the confirmation page with details
     } else if (receiptError && status === 'confirming' && hashToUse) {
+      logger.error('Transaction receipt error', receiptError, {
+        txHash: hashToUse,
+        isCancellation: isCancellationError(receiptError),
+      });
+      
       if (isCancellationError(receiptError)) {
         setStatus('preview');
         setCurrentTxHash(null);
@@ -121,7 +219,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         setStatus('error', errorMessage);
       }
     }
-  }, [receipt, receiptError, status, txHash, currentTxHash, setStatus, onSuccess, success, showErrorToast, refreshBalances]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receipt, receiptError, status, txHash, currentTxHash, fromAccount, toAccount, refreshBalances, fetchVaultData, morphoHoldings, router, success, setStatus, showErrorToast]);
 
   const handleConfirm = async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
@@ -143,7 +242,22 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     try {
       setStatus('confirming');
       
+      logger.info('Transaction execution started', {
+        transactionType,
+        fromAccount: fromAccount?.type === 'wallet' ? 'wallet' : (fromAccount as VaultAccount)?.address,
+        toAccount: toAccount?.type === 'wallet' ? 'wallet' : (toAccount as VaultAccount)?.address,
+        amount,
+        assetSymbol: assetToUse.symbol,
+        timestamp: new Date().toISOString(),
+      });
+      
       const onProgress = (step: TransactionProgressStep) => {
+        if (step.type === 'confirming' && step.txHash) {
+          logger.info('Transaction sent, waiting for confirmation', {
+            txHash: step.txHash,
+            timestamp: new Date().toISOString(),
+          });
+        }
         setTotalSteps(step.totalSteps);
         
         setStepsInfo(prev => {

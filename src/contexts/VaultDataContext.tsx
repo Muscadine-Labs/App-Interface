@@ -44,7 +44,7 @@ interface VaultDataState {
 
 interface VaultDataContextType {
   vaultData: VaultDataState;
-  fetchVaultData: (address: string, chainId?: number) => Promise<void>;
+  fetchVaultData: (address: string, chainId?: number, forceRefresh?: boolean) => Promise<void>;
   getVaultData: (address: string) => MorphoVaultData | null;
   getVaultMarketIds: (address: string) => `0x${string}`[]; // Get market uniqueKeys for simulation
   isLoading: (address: string) => boolean;
@@ -68,6 +68,14 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   
   // Request deduplication maps with cleanup mechanism
   const pendingRequests = React.useRef<Map<string, Promise<void>>>(new Map());
+  
+  // Ref to track current vaultData to avoid dependency issues
+  const vaultDataRef = React.useRef<VaultDataState>(vaultData);
+  
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    vaultDataRef.current = vaultData;
+  }, [vaultData]);
 
   // Cleanup old pending requests periodically to prevent memory leaks
   React.useEffect(() => {
@@ -88,14 +96,20 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   }, []);
 
   // NEW: Fetch complete vault data in ONE API call
-  const fetchCompleteVaultData = useCallback(async (address: string, chainId: number = 8453) => {
-    const cacheKey = `vault-complete-${address}-${chainId}`;
+  const fetchCompleteVaultData = useCallback(async (address: string, chainId?: number, forceRefresh?: boolean) => {
+    const effectiveChainId = chainId ?? 8453;
+    const shouldForceRefresh = forceRefresh ?? false;
+    const cacheKey = `vault-complete-${address}-${effectiveChainId}`;
     
-    // Check if we already have fresh data
-    if (vaultData[address] && 
-        vaultData[address].basic && 
-        !isDataStale(vaultData[address].lastFetched)) {
-      return;
+    // Check if we already have fresh data (unless forcing refresh)
+    // Use ref to read current state without adding to dependencies
+    if (!shouldForceRefresh) {
+      const currentVaultData = vaultDataRef.current[address];
+      if (currentVaultData && 
+          currentVaultData.basic && 
+          !isDataStale(currentVaultData.lastFetched)) {
+        return;
+      }
     }
 
     // Request deduplication
@@ -114,7 +128,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       }));
 
       try {
-        const response = await fetch(`/api/vaults/${address}/complete?chainId=${chainId}`);
+        const response = await fetch(`/api/vaults/${address}/complete?chainId=${effectiveChainId}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -148,7 +162,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           address: vaultInfo.address,
           name: vaultInfo.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
           symbol: vaultInfo.asset?.symbol || 'UNKNOWN',
-          chainId: chainId,
+          chainId: effectiveChainId,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: vaultInfo.asset?.decimals || 18,
@@ -236,7 +250,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
 
     pendingRequests.current.set(cacheKey, fetchPromise);
     return fetchPromise;
-  }, [vaultData, isDataStale]);
+  }, [isDataStale]);
 
 
 
