@@ -581,7 +581,7 @@ export default function TransactionsPage() {
               type="button"
               onClick={handleFlipAccounts}
               disabled={!fromAccount || !toAccount}
-              className="p-2 rounded-lg bg-[var(--background)] border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:bg-[var(--surface-elevated)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-[var(--border-subtle)] disabled:hover:bg-[var(--background)]"
+              className="p-2 rounded-lg bg-[var(--background)] border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:bg-[var(--surface-elevated)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-[var(--border-subtle)] disabled:hover:bg-[var(--background)] cursor-pointer"
               aria-label="Flip accounts"
             >
               <Icon
@@ -624,7 +624,7 @@ export default function TransactionsPage() {
                   type="button"
                   onClick={calculateMaxAmount}
                   disabled={getMaxAmount === null}
-                  className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed disabled:hover:text-[var(--foreground-muted)]"
+                  className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed disabled:hover:text-[var(--foreground-muted)] cursor-pointer"
                 >
                   MAX
                 </button>

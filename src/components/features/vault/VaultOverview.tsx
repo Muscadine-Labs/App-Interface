@@ -589,7 +589,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <div className="flex gap-2 border-b border-[var(--border-subtle)]">
           <button
             onClick={() => setChartType('apy')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
               chartType === 'apy'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -602,7 +602,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </button>
           <button
             onClick={() => setChartType('tvl')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
               chartType === 'tvl'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -615,81 +615,127 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </button>
         </div>
 
-        {/* Controls Row */}
-        <div className="flex items-center justify-between">
-          {/* Period Selector */}
-          <div className="flex gap-2">
-            {availablePeriods.map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  period === p
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                {p === 'all' ? 'All' : p.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          
-          {/* Value Type Toggle - Show for Total Deposits chart */}
-          {chartType === 'tvl' && (
-            <div className="flex items-center gap-2 bg-[var(--surface)] rounded-lg p-1">
-              <button
-                onClick={() => setValueType('usd')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                  valueType === 'usd'
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                USD
-              </button>
-              <button
-                onClick={() => setValueType('token')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                  valueType === 'token'
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                {vaultData.symbol || 'Token'}
-              </button>
-            </div>
-          )}
-        </div>
-
         {/* Chart */}
         {loading ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-64 p-4">
-            <div className="h-full flex flex-col justify-between">
-              {/* Y-axis labels area */}
-              <div className="flex justify-between mb-2">
-                <Skeleton width="3rem" height="0.75rem" />
-                <Skeleton width="3rem" height="0.75rem" />
-              </div>
-              {/* Chart area with wave pattern */}
-              <div className="flex-1 flex items-end justify-between gap-1 px-2">
-                {[45, 52, 38, 60, 48, 55, 42, 58, 50, 47, 53, 40, 57, 45, 50, 48, 55, 42, 58, 45].map((heightPercent, index) => (
-                  <Skeleton
-                    key={index}
-                    width="100%"
-                    height={`${heightPercent}%`}
-                    className="rounded-t"
-                  />
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
+            {/* Controls Row */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              {/* Period Selector */}
+              <div className="flex gap-2">
+                {availablePeriods.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                      period === p
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {p === 'all' ? 'All' : p.toUpperCase()}
+                  </button>
                 ))}
               </div>
-              {/* X-axis labels area */}
-              <div className="flex justify-between mt-2">
-                <Skeleton width="4rem" height="0.75rem" />
-                <Skeleton width="4rem" height="0.75rem" />
+              
+              {/* Value Type Toggle - Show for Total Deposits chart */}
+              {chartType === 'tvl' && (
+                <div className="flex items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)]">
+                  <button
+                    onClick={() => setValueType('token')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'token'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {vaultData.symbol || 'Token'}
+                  </button>
+                  <button
+                    onClick={() => setValueType('usd')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'usd'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    USD
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="h-64">
+              <div className="h-full flex flex-col justify-between">
+                {/* Y-axis labels area */}
+                <div className="flex justify-between mb-2">
+                  <Skeleton width="3rem" height="0.75rem" />
+                  <Skeleton width="3rem" height="0.75rem" />
+                </div>
+                {/* Chart area with wave pattern */}
+                <div className="flex-1 flex items-end justify-between gap-1 px-2">
+                  {[45, 52, 38, 60, 48, 55, 42, 58, 50, 47, 53, 40, 57, 45, 50, 48, 55, 42, 58, 45].map((heightPercent, index) => (
+                    <Skeleton
+                      key={index}
+                      width="100%"
+                      height={`${heightPercent}%`}
+                      className="rounded-t"
+                    />
+                  ))}
+                </div>
+                {/* X-axis labels area */}
+                <div className="flex justify-between mt-2">
+                  <Skeleton width="4rem" height="0.75rem" />
+                  <Skeleton width="4rem" height="0.75rem" />
+                </div>
               </div>
             </div>
           </div>
-        ) : historyData.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-4">
+        ) : (historyData.length > 0) ? (
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
+            {/* Controls Row */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              {/* Period Selector */}
+              <div className="flex gap-2">
+                {availablePeriods.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                      period === p
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {p === 'all' ? 'All' : p.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              
+              {/* Value Type Toggle - Show for Total Deposits chart */}
+              {chartType === 'tvl' && (
+                <div className="flex items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)]">
+                  <button
+                    onClick={() => setValueType('token')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'token'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {vaultData.symbol || 'Token'}
+                  </button>
+                  <button
+                    onClick={() => setValueType('usd')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'usd'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    USD
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 {chartType === 'apy' ? (

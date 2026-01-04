@@ -82,7 +82,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                         <div className="relative flex items-center gap-1 sm:gap-3" ref={menuRef}>
                             <button
                                 onClick={() => setIsMenuOpen(!isMenuOpen)}
-                                className="flex items-center gap-1 sm:gap-3 hover:opacity-80 transition-opacity"
+                                className="flex items-center gap-1 sm:gap-3 hover:opacity-80 transition-opacity cursor-pointer"
                                 aria-label="Toggle menu"
                             >
                                 <Image
@@ -116,7 +116,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://muscadine.io"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Muscadine.io
@@ -132,7 +132,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://docs.muscadine.io"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Documentation
@@ -148,7 +148,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://curator.muscadine.io"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Risk Analytics
@@ -158,7 +158,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://muscadine.io/terms"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Terms of Use
@@ -167,7 +167,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://muscadine.io/legal"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Legal Disclaimer
@@ -176,7 +176,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://muscadine.io/privacy"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Privacy Policy
@@ -189,7 +189,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://x.com/muscadinelabs"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors"
+                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                             aria-label="X"
                                         >
@@ -201,7 +201,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://www.linkedin.com/company/muscadinelabs/"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors"
+                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                             aria-label="LinkedIn"
                                         >
@@ -213,7 +213,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             href="https://muscadine.io/contact"
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors"
+                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                             aria-label="Contact"
                                         >
@@ -316,7 +316,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                     setMode('Advanced');
                                                     setIsSettingsOpen(false);
                                                 }}
-                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors ${
+                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
                                                     mode === 'Advanced'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
@@ -331,7 +331,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                     setMode('Simple');
                                                     setIsSettingsOpen(false);
                                                 }}
-                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors ${
+                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
                                                     mode === 'Simple'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
@@ -355,7 +355,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                     setTheme('Dark');
                                                     setIsSettingsOpen(false);
                                                 }}
-                                                className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors ${
+                                                className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors cursor-pointer ${
                                                     theme === 'Dark'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
@@ -370,7 +370,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                     setTheme('Light');
                                                     setIsSettingsOpen(false);
                                                 }}
-                                                className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors ${
+                                                className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors cursor-pointer ${
                                                     theme === 'Light'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
@@ -385,7 +385,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                     setTheme('Auto');
                                                     setIsSettingsOpen(false);
                                                 }}
-                                                className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors ${
+                                                className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors cursor-pointer ${
                                                     theme === 'Auto'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
@@ -402,7 +402,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                         {onToggleSidebar && (
                             <button
                                 onClick={onToggleSidebar}
-                                className="hidden md:flex w-12 h-8 hover:bg-[var(--surface-hover)] rounded transition-colors items-center justify-center group"
+                                className="hidden md:flex w-12 h-8 hover:bg-[var(--surface-hover)] rounded transition-colors items-center justify-center group cursor-pointer"
                                 aria-label={isRightSidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
                             >
                                 <Icon 
@@ -470,7 +470,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                     router.push('/');
                                     setIsMobileNavOpen(false);
                                 }}
-                                className={`px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors ${pathname === '/' ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
+                                className={`px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${pathname === '/' ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
                             >
                                 Dashboard
                             </button>
@@ -492,7 +492,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 router.push('/transactions');
                                                 setIsMobileNavOpen(false);
                                             }}
-                                            className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors ${pathname === '/transactions' ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
+                                            className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${pathname === '/transactions' ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
                                         >
                                             {item.label}
                                         </button>

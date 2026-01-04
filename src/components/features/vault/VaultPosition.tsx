@@ -649,24 +649,24 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                 {/* Value Type Toggle */}
                 <div className="flex items-center gap-2 bg-[var(--surface)] rounded-lg p-1">
                   <button
-                    onClick={() => setValueType('usd')}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                      valueType === 'usd'
-                        ? 'bg-[var(--primary)] text-white'
-                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                    }`}
-                  >
-                    USD
-                  </button>
-                  <button
                     onClick={() => setValueType('token')}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
                       valueType === 'token'
                         ? 'bg-[var(--primary)] text-white'
                         : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
                     }`}
                   >
                     {vaultData.symbol || 'Token'}
+                  </button>
+                  <button
+                    onClick={() => setValueType('usd')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'usd'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    USD
                   </button>
                 </div>
               </div>

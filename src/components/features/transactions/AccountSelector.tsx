@@ -365,7 +365,7 @@ export function AccountSelector({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 bg-[var(--background)] border border-[var(--border-subtle)] rounded-lg text-left flex items-center justify-between hover:border-[var(--primary)] transition-colors"
+        className="w-full px-4 py-3 bg-[var(--background)] border border-[var(--border-subtle)] rounded-lg text-left flex items-center justify-between hover:border-[var(--primary)] transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {selectedAccount ? (
@@ -433,7 +433,7 @@ export function AccountSelector({
                     onSelect(account);
                     setIsOpen(false);
                   }}
-                  className={`w-full px-4 py-3 flex items-center gap-3 hover:bg-[var(--background)] transition-colors ${
+                  className={`w-full px-4 py-3 flex items-center gap-3 hover:bg-[var(--background)] transition-colors cursor-pointer ${
                     isSelected ? 'bg-[var(--background)]' : ''
                   } ${index > 0 ? 'border-t border-[var(--border-subtle)]' : ''}`}
                 >
