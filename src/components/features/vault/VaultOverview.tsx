@@ -19,6 +19,8 @@ interface HistoryDataPoint {
   totalAssetsUsd: number;
   totalAssets?: number;
   apy: number;
+  sharePriceUsd?: number;
+  assetPriceUsd?: number;
 }
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
@@ -31,9 +33,14 @@ const PERIOD_SECONDS: Record<Period, number> = {
   '1y': 365 * 24 * 60 * 60,
 };
 
+// Minimum timestamp: October 7, 2025 00:00:00 UTC
+const MIN_TIMESTAMP = 1759795200;
+
 export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [period, setPeriod] = useState<Period>('all');
   const [allHistoryData, setAllHistoryData] = useState<HistoryDataPoint[]>([]);
+  const [hourly7dData, setHourly7dData] = useState<HistoryDataPoint[]>([]);
+  const [hourly30dData, setHourly30dData] = useState<HistoryDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<'apy' | 'tvl'>('apy');
   const [valueType, setValueType] = useState<'usd' | 'token'>('token');
@@ -52,12 +59,19 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
 
   // Filter history data based on selected period and find first non-zero value
   const historyData = useMemo(() => {
-    let filtered = allHistoryData;
+    // Use hourly data for 7d and 30d periods, otherwise use daily data
+    let sourceData = allHistoryData;
+    if (period === '7d' && hourly7dData.length > 0) {
+      sourceData = hourly7dData;
+    } else if (period === '30d' && hourly30dData.length > 0) {
+      sourceData = hourly30dData;
+    }
+    let filtered = sourceData;
     
-    if (period !== 'all' && allHistoryData.length > 0) {
+    if (period !== 'all' && sourceData.length > 0) {
       const now = Math.floor(Date.now() / 1000);
       const cutoffTimestamp = now - PERIOD_SECONDS[period];
-      filtered = allHistoryData.filter(d => d.timestamp >= cutoffTimestamp);
+      filtered = sourceData.filter(d => d.timestamp >= cutoffTimestamp);
     }
     
     // Find the first non-zero value based on chart type
@@ -68,7 +82,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       
       if (chartType === 'apy') {
         firstNonZeroIndex = filtered.findIndex(d => d.apy > 0);
-      } else {
+      } else if (chartType === 'tvl') {
         firstNonZeroIndex = filtered.findIndex(d => 
           (valueType === 'usd' ? d.totalAssetsUsd : (d.totalAssets || 0)) > 0
         );
@@ -80,7 +94,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return filtered;
-  }, [allHistoryData, period, chartType, valueType]);
+  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType]);
 
   // Calculate Y-axis domain for APY chart
   const apyYAxisDomain = useMemo(() => {
@@ -135,9 +149,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     const fetchAllHistory = async () => {
       setLoading(true);
       try {
-        // Always fetch 1y worth of data to get all available history
+        // Fetch all available history data (daily intervals)
         const response = await fetch(
-          `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=1y`
+          `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=all`
         );
         
         // Validate HTTP response
@@ -177,6 +191,88 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     fetchAllHistory();
   }, [vaultData.address, vaultData.chainId, showErrorToast]);
 
+  // Fetch hourly data for 7d period
+  useEffect(() => {
+    const fetch7dHourly = async () => {
+      try {
+        // Fetch 7d data with hourly intervals
+        const response = await fetch(
+          `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=7d`
+        );
+        
+        if (!response.ok) {
+          return; // Silently fail, will fall back to daily data
+        }
+        
+        const data = await response.json();
+        
+        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
+          // Ensure timestamps are unique and sorted
+          const uniqueData = data.history.filter((point: HistoryDataPoint, index: number, self: HistoryDataPoint[]) => 
+            index === self.findIndex((p) => p.timestamp === point.timestamp)
+          );
+          setHourly7dData(uniqueData);
+        } else {
+          setHourly7dData([]);
+        }
+      } catch (error) {
+        // Silently fail, will fall back to daily data
+        logger.warn(
+          'Failed to fetch 7d hourly data, falling back to daily',
+          { 
+            vaultAddress: vaultData.address, 
+            chainId: vaultData.chainId,
+            error: error instanceof Error ? error.message : String(error)
+          }
+        );
+        setHourly7dData([]);
+      }
+    };
+
+    fetch7dHourly();
+  }, [vaultData.address, vaultData.chainId]);
+
+  // Fetch hourly data for 30d period
+  useEffect(() => {
+    const fetch30dHourly = async () => {
+      try {
+        // Fetch 30d data with hourly intervals
+        const response = await fetch(
+          `/api/vaults/${vaultData.address}/history?chainId=${vaultData.chainId}&period=30d`
+        );
+        
+        if (!response.ok) {
+          return; // Silently fail, will fall back to daily data
+        }
+        
+        const data = await response.json();
+        
+        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
+          // Ensure timestamps are unique and sorted
+          const uniqueData = data.history.filter((point: HistoryDataPoint, index: number, self: HistoryDataPoint[]) => 
+            index === self.findIndex((p) => p.timestamp === point.timestamp)
+          );
+          setHourly30dData(uniqueData);
+        } else {
+          setHourly30dData([]);
+        }
+      } catch (error) {
+        // Silently fail, will fall back to daily data
+        logger.warn(
+          'Failed to fetch 30d hourly data, falling back to daily',
+          { 
+            vaultAddress: vaultData.address, 
+            chainId: vaultData.chainId,
+            error: error instanceof Error ? error.message : String(error)
+          }
+        );
+        setHourly30dData([]);
+      }
+    };
+
+    fetch30dHourly();
+  }, [vaultData.address, vaultData.chainId]);
+
   // Calculate available periods based on data range
   const availablePeriods = useMemo(() => {
     if (allHistoryData.length === 0) return ['all' as Period];
@@ -188,10 +284,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     const periods: Period[] = ['all'];
     
     // Only add periods that are <= the available data range
+    // Hide '1y' if vault was created in the last year (has less than 1 year of data)
+    // Only show '1y' if vault has 1 year or more of data (was not created in the last year)
     if (dataRangeSeconds >= PERIOD_SECONDS['1y']) {
       periods.push('1y');
     }
-    if (dataRangeSeconds >= PERIOD_SECONDS['90d']) {
+    // Only show '90d' if 90 days ago is after Oct 7, 2025
+    if (dataRangeSeconds >= PERIOD_SECONDS['90d'] && (now - PERIOD_SECONDS['90d']) >= MIN_TIMESTAMP) {
       periods.push('90d');
     }
     if (dataRangeSeconds >= PERIOD_SECONDS['30d']) {
@@ -490,7 +589,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <div className="flex gap-2 border-b border-[var(--border-subtle)]">
           <button
             onClick={() => setChartType('apy')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
               chartType === 'apy'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -503,7 +602,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </button>
           <button
             onClick={() => setChartType('tvl')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
               chartType === 'tvl'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -516,81 +615,127 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </button>
         </div>
 
-        {/* Controls Row */}
-        <div className="flex items-center justify-between">
-          {/* Period Selector */}
-          <div className="flex gap-2">
-            {availablePeriods.map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  period === p
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                {p === 'all' ? 'All' : p.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          
-          {/* Value Type Toggle - Only show for Total Deposits chart */}
-          {chartType === 'tvl' && (
-            <div className="flex items-center gap-2 bg-[var(--surface)] rounded-lg p-1">
-              <button
-                onClick={() => setValueType('usd')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                  valueType === 'usd'
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                USD
-              </button>
-              <button
-                onClick={() => setValueType('token')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                  valueType === 'token'
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                {vaultData.symbol || 'Token'}
-              </button>
-            </div>
-          )}
-        </div>
-
         {/* Chart */}
         {loading ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-64 p-4">
-            <div className="h-full flex flex-col justify-between">
-              {/* Y-axis labels area */}
-              <div className="flex justify-between mb-2">
-                <Skeleton width="3rem" height="0.75rem" />
-                <Skeleton width="3rem" height="0.75rem" />
-              </div>
-              {/* Chart area with wave pattern */}
-              <div className="flex-1 flex items-end justify-between gap-1 px-2">
-                {[45, 52, 38, 60, 48, 55, 42, 58, 50, 47, 53, 40, 57, 45, 50, 48, 55, 42, 58, 45].map((heightPercent, index) => (
-                  <Skeleton
-                    key={index}
-                    width="100%"
-                    height={`${heightPercent}%`}
-                    className="rounded-t"
-                  />
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
+            {/* Controls Row */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              {/* Period Selector */}
+              <div className="flex gap-2">
+                {availablePeriods.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                      period === p
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {p === 'all' ? 'All' : p.toUpperCase()}
+                  </button>
                 ))}
               </div>
-              {/* X-axis labels area */}
-              <div className="flex justify-between mt-2">
-                <Skeleton width="4rem" height="0.75rem" />
-                <Skeleton width="4rem" height="0.75rem" />
+              
+              {/* Value Type Toggle - Show for Total Deposits chart */}
+              {chartType === 'tvl' && (
+                <div className="flex items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)]">
+                  <button
+                    onClick={() => setValueType('token')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'token'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {vaultData.symbol || 'Token'}
+                  </button>
+                  <button
+                    onClick={() => setValueType('usd')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'usd'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    USD
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="h-64">
+              <div className="h-full flex flex-col justify-between">
+                {/* Y-axis labels area */}
+                <div className="flex justify-between mb-2">
+                  <Skeleton width="3rem" height="0.75rem" />
+                  <Skeleton width="3rem" height="0.75rem" />
+                </div>
+                {/* Chart area with wave pattern */}
+                <div className="flex-1 flex items-end justify-between gap-1 px-2">
+                  {[45, 52, 38, 60, 48, 55, 42, 58, 50, 47, 53, 40, 57, 45, 50, 48, 55, 42, 58, 45].map((heightPercent, index) => (
+                    <Skeleton
+                      key={index}
+                      width="100%"
+                      height={`${heightPercent}%`}
+                      className="rounded-t"
+                    />
+                  ))}
+                </div>
+                {/* X-axis labels area */}
+                <div className="flex justify-between mt-2">
+                  <Skeleton width="4rem" height="0.75rem" />
+                  <Skeleton width="4rem" height="0.75rem" />
+                </div>
               </div>
             </div>
           </div>
-        ) : historyData.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-4">
+        ) : (historyData.length > 0) ? (
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
+            {/* Controls Row */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              {/* Period Selector */}
+              <div className="flex gap-2">
+                {availablePeriods.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                      period === p
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {p === 'all' ? 'All' : p.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              
+              {/* Value Type Toggle - Show for Total Deposits chart */}
+              {chartType === 'tvl' && (
+                <div className="flex items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)]">
+                  <button
+                    onClick={() => setValueType('token')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'token'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {vaultData.symbol || 'Token'}
+                  </button>
+                  <button
+                    onClick={() => setValueType('usd')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
+                      valueType === 'usd'
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    USD
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 {chartType === 'apy' ? (

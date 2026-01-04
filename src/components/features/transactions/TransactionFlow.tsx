@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useWaitForTransactionReceipt } from 'wagmi';
+import { useState, useEffect, useMemo } from 'react';
+import { useWaitForTransactionReceipt, useReadContract } from 'wagmi';
+import { formatUnits } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useVaultTransactions, TransactionProgressStep } from '@/hooks/useVaultTransactions';
@@ -14,6 +15,17 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 
 import { logger } from '@/lib/logger';
 import { useRouter } from 'next/navigation';
+
+// ERC-4626 ABI for convertToAssets
+const ERC4626_ABI = [
+  {
+    inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
+    name: 'convertToAssets',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -37,7 +49,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const router = useRouter();
 
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
-  const [prerequisiteReceipts, setPrerequisiteReceipts] = useState<Map<number, boolean>>(new Map());
   const [stepsInfo, setStepsInfo] = useState<Array<{ stepIndex: number; label: string; type: 'signing' | 'approving' | 'confirming'; txHash?: string }>>([]);
   const [totalSteps, setTotalSteps] = useState<number>(0);
 
@@ -51,12 +62,59 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
 
   const shouldEnableSimulation = (status === 'preview' || status === 'signing' || status === 'approving' || status === 'confirming') && !!vaultAddress;
   const { executeVaultAction, isLoading } = useVaultTransactions(vaultAddress, shouldEnableSimulation);
+  const { getVaultData } = useVaultData();
+
+  // Get vault position for withdrawals to check if MAX was used
+  const vaultPosition = useMemo(() => {
+    if (fromAccount?.type !== 'vault' || transactionType !== 'withdraw') return null;
+    return morphoHoldings.positions.find(
+      (pos) => pos.vault.address.toLowerCase() === (fromAccount as VaultAccount).address.toLowerCase()
+    ) || null;
+  }, [fromAccount, morphoHoldings.positions, transactionType]);
+
+  const vaultShareBalance = vaultPosition?.shares || null;
+
+  // Use convertToAssets via RPC to get exact asset amount from shares for max withdrawal check
+  const { data: exactAssetAmount } = useReadContract({
+    address: (transactionType === 'withdraw' && vaultShareBalance && fromAccount?.type === 'vault' 
+      ? (fromAccount as VaultAccount).address 
+      : undefined) as `0x${string}`,
+    abi: ERC4626_ABI,
+    functionName: 'convertToAssets',
+    args: vaultShareBalance && fromAccount?.type === 'vault'
+      ? [BigInt(vaultShareBalance)]
+      : undefined,
+    query: {
+      enabled: transactionType === 'withdraw' && fromAccount?.type === 'vault' && !!vaultShareBalance && BigInt(vaultShareBalance) > BigInt(0),
+    },
+  });
+
+  // Check if withdrawal amount matches max (within small tolerance for rounding)
+  const shouldUseWithdrawAll = useMemo(() => {
+    if (transactionType !== 'withdraw' || !fromAccount || fromAccount.type !== 'vault' || !amount || !exactAssetAmount) {
+      return false;
+    }
+
+    const vaultAccount = fromAccount as VaultAccount;
+    const vaultData = getVaultData(vaultAccount.address);
+    if (!vaultData) return false;
+
+    const maxAssetAmount = parseFloat(formatUnits(exactAssetAmount, vaultData.assetDecimals || 18));
+    const enteredAmount = parseFloat(amount);
+
+    if (isNaN(enteredAmount) || isNaN(maxAssetAmount) || maxAssetAmount === 0) {
+      return false;
+    }
+
+    // Check if entered amount is within 0.1% of max (to account for rounding)
+    const tolerance = maxAssetAmount * 0.001;
+    return Math.abs(enteredAmount - maxAssetAmount) <= tolerance;
+  }, [transactionType, fromAccount, amount, exactAssetAmount, getVaultData]);
 
   // Reset transaction hash and step when status changes
   useEffect(() => {
     if (status === 'idle' || status === 'preview') {
       setCurrentTxHash(null);
-      setPrerequisiteReceipts(new Map());
       setStepsInfo([]);
       setTotalSteps(0);
     }
@@ -71,39 +129,10 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     },
   });
 
-  // Wait for prerequisite transaction receipts
-  const currentPrerequisiteStep = stepsInfo.find(step => 
-    (step.type === 'signing' || step.type === 'approving') && 
-    step.txHash && 
-    !prerequisiteReceipts.get(step.stepIndex)
-  );
-  
-  const { data: prerequisiteReceipt, error: prerequisiteReceiptError } = useWaitForTransactionReceipt({
-    hash: currentPrerequisiteStep?.txHash as `0x${string}`,
-    query: {
-      enabled: !!currentPrerequisiteStep?.txHash && 
-              (status === 'approving' || status === 'signing'),
-    },
-  });
-
-  // Handle prerequisite transaction receipts
-  useEffect(() => {
-    if (prerequisiteReceipt && currentPrerequisiteStep) {
-      setPrerequisiteReceipts(prev => new Map(prev).set(currentPrerequisiteStep.stepIndex, true));
-    } else if (prerequisiteReceiptError && currentPrerequisiteStep) {
-      if (isCancellationError(prerequisiteReceiptError)) {
-        setStatus('preview');
-        setCurrentTxHash(null);
-        setPrerequisiteReceipts(new Map());
-        setStepsInfo([]);
-        setTotalSteps(0);
-      } else {
-        const errorMessage = formatTransactionError(prerequisiteReceiptError);
-        showErrorToast(errorMessage, 5000);
-        setStatus('error', errorMessage);
-      }
-    }
-  }, [prerequisiteReceipt, prerequisiteReceiptError, currentPrerequisiteStep, setStatus, showErrorToast]);
+  // Note: We don't need to wait for prerequisite transaction receipts here because
+  // executeVaultAction already waits for them internally using publicClient.waitForTransactionReceipt.
+  // The onProgress callback will update the status appropriately as steps complete.
+  // This avoids race conditions and duplicate waiting logic.
 
   // Handle transaction receipt
   useEffect(() => {
@@ -210,7 +239,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       if (isCancellationError(receiptError)) {
         setStatus('preview');
         setCurrentTxHash(null);
-        setPrerequisiteReceipts(new Map());
         setStepsInfo([]);
         setTotalSteps(0);
       } else {
@@ -219,6 +247,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         setStatus('error', errorMessage);
       }
     }
+    // Note: refreshBalancesWithPolling is intentionally excluded from deps to avoid unnecessary re-runs
+    // morphoHoldings is included but its reference changes frequently - the effect handles this correctly
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receipt, receiptError, status, txHash, currentTxHash, fromAccount, toAccount, refreshBalances, fetchVaultData, morphoHoldings, router, success, setStatus, showErrorToast]);
 
@@ -240,7 +270,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     }
 
     try {
-      setStatus('confirming');
+      // Don't set status here - let onProgress callback set it based on actual step
+      // This ensures we start with the correct status (signing/approving) for pre-authorization
       
       logger.info('Transaction execution started', {
         transactionType,
@@ -267,7 +298,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
             stepIndex: step.stepIndex,
             label: step.stepLabel || (step.type === 'signing' ? 'Pre authorize' : step.type === 'approving' ? 'Pre authorize' : 'Confirm'),
             type: step.type,
-            txHash: step.type === 'confirming' ? step.txHash : (step.type === 'approving' ? step.txHash : undefined)
+            // Capture txHash for both approving and confirming steps
+            txHash: step.type === 'confirming' ? step.txHash : (step.type === 'approving' && 'txHash' in step ? step.txHash : undefined)
           };
           
           if (existingIndex >= 0) {
@@ -282,6 +314,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           return newSteps;
         });
         
+        // Update status based on step type - this ensures proper state transitions
         if (step.type === 'signing') {
           setStatus('signing');
         } else if (step.type === 'approving') {
@@ -301,7 +334,12 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         txHash = await executeVaultAction('deposit', vaultAddress, amount, onProgress, undefined, assetToUse.decimals);
       } else if (transactionType === 'withdraw') {
         const vaultAddress = (fromAccount as VaultAccount).address;
-        txHash = await executeVaultAction('withdraw', vaultAddress, amount, onProgress, undefined, assetToUse.decimals);
+        // Use withdrawAll (redeem) if amount matches max, otherwise use regular withdraw
+        if (shouldUseWithdrawAll) {
+          txHash = await executeVaultAction('withdrawAll', vaultAddress, undefined, onProgress, undefined, assetToUse.decimals);
+        } else {
+          txHash = await executeVaultAction('withdraw', vaultAddress, amount, onProgress, undefined, assetToUse.decimals);
+        }
       } else if (transactionType === 'transfer') {
         // For transfer, withdraw from source vault and deposit to destination vault in single bundle
         const sourceVaultAddress = (fromAccount as VaultAccount).address;
@@ -319,7 +357,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       if (isCancellationError(err)) {
         setStatus('preview');
         setCurrentTxHash(null);
-        setPrerequisiteReceipts(new Map());
         setStepsInfo([]);
         setTotalSteps(0);
         return;
@@ -347,15 +384,30 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   }
 
   // Calculate steps for wallet progress bar (shown in confirmation modal)
+  // Since executeVaultAction waits for prerequisite receipts internally, we determine
+  // step completion based on status progression rather than individual receipt tracking
   const walletSteps = (isSigning || isApproving || isConfirming || isSuccess) ? (() => {
     const effectiveTotalSteps = totalSteps > 0 ? totalSteps : (stepsInfo.length > 0 ? Math.max(...stepsInfo.map(s => s.stepIndex)) + 1 : 0);
     
     if (effectiveTotalSteps > 0) {
       return Array.from({ length: effectiveTotalSteps }, (_, i) => {
         const stepInfo = stepsInfo.find(s => s.stepIndex === i);
-        const isCompleted = stepInfo 
-          ? (stepInfo.type === 'confirming' ? !!receipt : !!prerequisiteReceipts.get(i))
-          : false;
+        
+        // Determine if step is completed:
+        // - Confirming steps: completed if we have a receipt
+        // - Signing/approving steps: completed if status has progressed past them
+        //   (i.e., if we're in confirming/success, all previous steps are done)
+        let isCompleted = false;
+        if (stepInfo) {
+          if (stepInfo.type === 'confirming') {
+            isCompleted = !!receipt || isSuccess;
+          } else if (stepInfo.type === 'signing' || stepInfo.type === 'approving') {
+            // If we're in confirming or success, all prerequisite steps are completed
+            // (executeVaultAction waits for them internally before proceeding)
+            isCompleted = isConfirming || isSuccess;
+          }
+        }
+        
         const isActive = stepInfo 
           ? ((stepInfo.type === 'signing' && isSigning) ||
              (stepInfo.type === 'approving' && isApproving) ||
@@ -397,7 +449,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         <TransactionConfirmation
           fromAccount={fromAccount}
           toAccount={toAccount}
-          amount={amount || ''}
+          amount={amount?.trim() || ''}
           assetSymbol={assetSymbol}
           assetDecimals={derivedAsset?.decimals}
           transactionType={transactionType}
@@ -411,7 +463,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
               // If transaction is in progress, reset to preview
               setStatus('preview');
               setCurrentTxHash(null);
-              setPrerequisiteReceipts(new Map());
               setStepsInfo([]);
               setTotalSteps(0);
             } else if (isSuccess) {

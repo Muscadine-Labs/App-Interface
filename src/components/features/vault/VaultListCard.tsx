@@ -5,8 +5,10 @@ import { useWallet } from '../../../contexts/WalletContext';
 import { formatSmartCurrency, formatCurrency, formatNumber, formatPercentage } from '../../../lib/formatter';
 import { useRouter, usePathname } from 'next/navigation';
 import { getVaultRoute } from '../../../lib/vault-utils';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import { Skeleton } from '../../../components/ui/Skeleton';
+import { useMemo } from 'react';
+import { usePrices } from '../../../contexts/PriceContext';
 
 interface VaultListCardProps {
     vault: Vault;
@@ -14,10 +16,33 @@ interface VaultListCardProps {
     isSelected?: boolean;
 }
 
+// ERC20 ABI for balanceOf
+const ERC20_BALANCE_ABI = [
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
+// ERC4626 ABI for convertToAssets
+const ERC4626_ABI = [
+  {
+    inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
+    name: 'convertToAssets',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
 export default function VaultListCard({ vault, onClick, isSelected }: VaultListCardProps) {
     const { getVaultData, isLoading } = useVaultData();
     const { morphoHoldings } = useWallet();
     const { address } = useAccount();
+    const { btc: btcPrice, eth: ethPrice } = usePrices();
     const router = useRouter();
     const pathname = usePathname();
     const vaultData = getVaultData(vault.address);
@@ -27,14 +52,57 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     const vaultRoute = getVaultRoute(vault.address);
     const isActive = pathname === vaultRoute || isSelected;
 
-    // Find user's position in this vault
+    // Get shares using balanceOf
+    const { data: sharesRaw } = useReadContract({
+      address: address ? vault.address as `0x${string}` : undefined,
+      abi: ERC20_BALANCE_ABI,
+      functionName: 'balanceOf',
+      args: address ? [address as `0x${string}`] : undefined,
+      query: { enabled: !!address },
+    });
+
+    // Convert shares to assets using convertToAssets
+    const { data: assetsRaw } = useReadContract({
+      address: sharesRaw && sharesRaw > BigInt(0) ? vault.address as `0x${string}` : undefined,
+      abi: ERC4626_ABI,
+      functionName: 'convertToAssets',
+      args: sharesRaw && sharesRaw > BigInt(0) ? [sharesRaw] : undefined,
+      query: { enabled: !!sharesRaw && sharesRaw > BigInt(0) },
+    });
+
+    // Find user's position in this vault (from WalletContext - already uses RPC)
     const userPosition = morphoHoldings.positions.find(
         pos => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
     );
 
-    // Calculate user's position value (convert shares from raw units to human-readable)
-    const userPositionValue = userPosition ? 
-        (parseFloat(userPosition.shares) / 1e18) * userPosition.vault.state.sharePriceUsd : 0;
+    // Calculate user's position value using RPC data
+    const userPositionValue = useMemo(() => {
+        // Use position from WalletContext (already calculated with RPC + price)
+        if (userPosition && userPosition.assetsUsd !== undefined && userPosition.assetsUsd > 0) {
+            return userPosition.assetsUsd;
+        }
+        
+        // Fallback: Calculate from RPC data if available
+        if (assetsRaw && vaultData) {
+            const assetDecimals = vaultData.assetDecimals || (vault.symbol === 'USDC' ? 6 : 18);
+            const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
+            
+            // Get asset price (same as liquid assets)
+            let assetPrice = 0;
+            const symbolUpper = vault.symbol.toUpperCase();
+            if (symbolUpper === 'USDC' || symbolUpper === 'USDT' || symbolUpper === 'DAI') {
+                assetPrice = 1;
+            } else if (symbolUpper === 'WETH') {
+                assetPrice = ethPrice || 0;
+            } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
+                assetPrice = btcPrice || 0;
+            }
+            
+            return assetsDecimal * assetPrice;
+        }
+        
+        return 0;
+    }, [userPosition, assetsRaw, vaultData, vault.symbol, ethPrice, btcPrice]);
 
 
     const handleClick = () => {
@@ -47,36 +115,38 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
         }
     };
 
-    // Get user's vault balance from GraphQL (user's asset balance in this vault)
-    const getUserVaultBalance = () => {
-        if (!userPosition || !vaultData) return null;
-        
-        let rawValue: number;
-        
-        // First priority: Use position.assets if available (from GraphQL)
-        if (userPosition.assets) {
-            rawValue = parseFloat(userPosition.assets) / Math.pow(10, vaultData.assetDecimals || 18);
-        } else {
-            // Second priority: Calculate from shares using share price
-            const sharesDecimal = parseFloat(userPosition.shares) / 1e18;
-            
-            if (vaultData.sharePrice && sharesDecimal > 0) {
-                rawValue = sharesDecimal * vaultData.sharePrice;
-            } else if (userPosition.vault?.state?.totalSupply && vaultData.totalAssets) {
-                // Third priority: Calculate share price from totalAssets / totalSupply
-                const totalSupplyDecimal = parseFloat(userPosition.vault.state.totalSupply) / 1e18;
-                const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18);
+    // Get user's vault balance from RPC data
+    const userVaultBalance = useMemo(() => {
+        if (!assetsRaw || !vaultData) {
+            // Fallback: Use position from WalletContext if available
+            if (userPosition && userPosition.assets && vaultData) {
+                const rawValue = parseFloat(userPosition.assets) / Math.pow(10, vaultData.assetDecimals || 18);
+                if (isNaN(rawValue) || rawValue === 0) return null;
                 
-                if (totalSupplyDecimal > 0) {
-                    const sharePriceInAsset = totalAssetsDecimal / totalSupplyDecimal;
-                    rawValue = sharesDecimal * sharePriceInAsset;
+                const integerPart = Math.floor(Math.abs(rawValue));
+                const digitCount = integerPart === 0 ? 0 : integerPart.toString().length;
+                
+                let decimalPlaces: number;
+                if (digitCount >= 3) {
+                    decimalPlaces = 2;
+                } else if (digitCount === 2) {
+                    decimalPlaces = 3;
+                } else if (digitCount === 1) {
+                    decimalPlaces = 4;
                 } else {
-                    return null;
+                    decimalPlaces = 5;
                 }
-            } else {
-                return null;
+                
+                return formatNumber(rawValue, {
+                    minimumFractionDigits: decimalPlaces,
+                    maximumFractionDigits: decimalPlaces
+                });
             }
+            return null;
         }
+        
+        const assetDecimals = vaultData.assetDecimals || (vault.symbol === 'USDC' ? 6 : 18);
+        const rawValue = Number(assetsRaw) / Math.pow(10, assetDecimals);
         
         if (isNaN(rawValue) || rawValue === 0) return null;
         
@@ -86,22 +156,20 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
         
         let decimalPlaces: number;
         if (digitCount >= 3) {
-            decimalPlaces = 2; // 3+ digits: 2 decimals
+            decimalPlaces = 2;
         } else if (digitCount === 2) {
-            decimalPlaces = 3; // 2 digits: 3 decimals
+            decimalPlaces = 3;
         } else if (digitCount === 1) {
-            decimalPlaces = 4; // 1 digit: 4 decimals
+            decimalPlaces = 4;
         } else {
-            decimalPlaces = 5; // Less than 1 (0.something): 5 decimals
+            decimalPlaces = 5;
         }
         
         return formatNumber(rawValue, {
             minimumFractionDigits: decimalPlaces,
             maximumFractionDigits: decimalPlaces
         });
-    };
-    
-    const userVaultBalance = getUserVaultBalance();
+    }, [assetsRaw, vaultData, userPosition, vault.symbol]);
 
     return (
         <div 
@@ -140,7 +208,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
                             <Skeleton width="5rem" height="1rem" />
                             <Skeleton width="4rem" height="0.875rem" />
                         </div>
-                    ) : userPosition && userPositionValue > 0 && userVaultBalance ? (
+                    ) : (userPosition || assetsRaw) && userPositionValue > 0 && userVaultBalance ? (
                         <div className="flex flex-col md:items-end">
                             <span className="text-sm md:text-base font-semibold text-[var(--foreground)]">
                                 {userVaultBalance} {vault.symbol}

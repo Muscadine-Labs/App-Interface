@@ -6,7 +6,6 @@ import { useAccount, useReadContract } from 'wagmi';
 import { AccountSelector, TransactionFlow, TransactionProgressBar } from '@/components/features/transactions';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { VAULTS } from '@/lib/vaults';
 import { VaultAccount, WalletAccount } from '@/types/vault';
@@ -14,6 +13,20 @@ import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, 
 import { Button } from '@/components/ui';
 import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
+
+// Helper function to get asset decimals from vault symbol (no API needed)
+const getAssetDecimals = (symbol: string): number => {
+  if (symbol === 'USDC') {
+    return 6;
+  }
+  if (symbol === 'cbBTC' || symbol === 'BTC' || symbol === 'CBBTC') {
+    return 8;
+  }
+  if (symbol === 'WETH' || symbol === 'ETH') {
+    return 18;
+  }
+  return 18; // Default to 18 for other tokens
+};
 
 // ERC-4626 ABI for convertToAssets
 const ERC4626_ABI = [
@@ -31,7 +44,6 @@ export default function TransactionsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { tokenBalances, ethBalance, morphoHoldings, refreshBalances } = useWallet();
-  const { getVaultData, fetchVaultData } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const {
     fromAccount,
@@ -46,22 +58,11 @@ export default function TransactionsPage() {
     reset,
   } = useTransactionState();
 
-  // Refresh wallet and vault data when page opens
+  // Refresh wallet balances when page opens
   useEffect(() => {
     if (isConnected) {
-      // Refresh wallet balances immediately
+      // Refresh wallet balances immediately (includes vault positions via RPC)
       refreshBalances();
-      
-      // Refresh vault data for all vaults that the user has positions in (force refresh to bypass cache)
-      const vaultsToRefresh = morphoHoldings.positions.map(pos => pos.vault.address);
-      vaultsToRefresh.forEach(vaultAddress => {
-        fetchVaultData(vaultAddress, 8453, true); // Force refresh
-      });
-      
-      // Also refresh all available vaults to ensure we have fresh data for selection
-      Object.values(VAULTS).forEach(vault => {
-        fetchVaultData(vault.address, vault.chainId, true); // Force refresh
-      });
     }
     // Only run once when component mounts or when connection status changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,19 +79,8 @@ export default function TransactionsPage() {
     const transitionedToIdle = !wasIdle && isNowIdle;
     
     if (isConnected && transitionedToIdle) {
-      // Refresh wallet balances to get updated values
+      // Refresh wallet balances to get updated values (includes vault positions via RPC)
       refreshBalances();
-      
-      // Refresh vault data for all vaults that the user has positions in (force refresh to bypass cache)
-      const vaultsToRefresh = morphoHoldings.positions.map(pos => pos.vault.address);
-      vaultsToRefresh.forEach(vaultAddress => {
-        fetchVaultData(vaultAddress, 8453, true); // Force refresh
-      });
-      
-      // Also refresh all available vaults to ensure we have fresh data for selection
-      Object.values(VAULTS).forEach(vault => {
-        fetchVaultData(vault.address, vault.chainId, true); // Force refresh
-      });
     }
     
     // Update previous status
@@ -106,7 +96,6 @@ export default function TransactionsPage() {
     if (vaultAddress && action) {
       const vault = Object.values(VAULTS).find((v) => v.address.toLowerCase() === vaultAddress.toLowerCase());
       if (vault) {
-        const vaultData = getVaultData(vault.address);
         const position = morphoHoldings.positions.find(
           (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
         );
@@ -118,7 +107,7 @@ export default function TransactionsPage() {
           symbol: vault.symbol,
           balance: position ? BigInt(position.shares) : BigInt(0),
           assetAddress: '', // Will be fetched during transaction
-          assetDecimals: vaultData?.assetDecimals ?? 18,
+          assetDecimals: getAssetDecimals(vault.symbol),
         };
 
         if (action === 'deposit') {
@@ -150,7 +139,7 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setFromAccount, setToAccount]);
 
-  // Get vault position for share balance
+  // Get vault position for share balance - use data already fetched in WalletContext
   const vaultPosition = useMemo(() => {
     if (fromAccount?.type !== 'vault') return null;
     return morphoHoldings.positions.find(
@@ -158,17 +147,20 @@ export default function TransactionsPage() {
     ) || null;
   }, [fromAccount, morphoHoldings.positions]);
 
-  // Use convertToAssets to convert user's shares to assets for accurate max calculation
-  // Following Morpho's recommendation: use shares as source of truth, then convert for display
-  const { data: withdrawableAssetsBigInt } = useReadContract({
-    address: (fromAccount?.type === 'vault' && vaultPosition ? (fromAccount as VaultAccount).address : undefined) as `0x${string}`,
+  // Use shares from vaultPosition (already fetched via RPC in WalletContext using balanceOf)
+  // This avoids redundant API calls - the position data is already up-to-date
+  const vaultShareBalance = vaultPosition?.shares || null;
+
+  // Use convertToAssets via RPC to get exact asset amount from shares (no precision loss)
+  const { data: exactAssetAmount } = useReadContract({
+    address: (fromAccount?.type === 'vault' && vaultShareBalance ? (fromAccount as VaultAccount).address : undefined) as `0x${string}`,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
-    args: vaultPosition && fromAccount?.type === 'vault'
-      ? [BigInt(vaultPosition.shares)]
+    args: vaultShareBalance && fromAccount?.type === 'vault'
+      ? [BigInt(vaultShareBalance)]
       : undefined,
     query: {
-      enabled: fromAccount?.type === 'vault' && !!vaultPosition,
+      enabled: fromAccount?.type === 'vault' && !!vaultShareBalance && BigInt(vaultShareBalance) > BigInt(0),
     },
   });
 
@@ -222,46 +214,39 @@ export default function TransactionsPage() {
   }, [derivedAsset, toAccount, ethBalance, tokenBalances, getCombinedEthWethBalance]);
 
   // Helper function to get vault balance display text
-  // For withdrawals, we display shares converted to assets for user-friendly display
-  // Following Morpho's recommendation: use shares as source of truth, convert to assets for display
+  // For withdrawals, we display shares converted to assets using convertToAssets for accuracy
   const getVaultBalanceText = useMemo(() => {
     if (!fromAccount || fromAccount.type !== 'vault' || !derivedAsset) return '';
     
     const vaultAccount = fromAccount as VaultAccount;
-    const vaultData = getVaultData(vaultAccount.address);
-    const position = vaultPosition;
+    const assetDecimals = getAssetDecimals(vaultAccount.symbol);
 
-    if (position && vaultData) {
-      // Use shares directly as the source of truth (recommended by Morpho)
-      const sharesBigInt = BigInt(position.shares);
-      const sharesDecimal = parseFloat(formatUnits(sharesBigInt, 18)); // Vault shares use 18 decimals
-      
-      if (sharesDecimal === 0) {
-        return `Available: 0.00 ${derivedAsset.symbol}`;
+    if (!vaultShareBalance) {
+      if (morphoHoldings.isLoading) {
+        return `Loading...`;
       }
-      
-      // Convert shares to assets using convertToAssets for accurate conversion
-      if (withdrawableAssetsBigInt !== undefined) {
-        const assetAmount = parseFloat(formatUnits(withdrawableAssetsBigInt, vaultData.assetDecimals || 18));
-        return formatAvailableBalance(assetAmount, derivedAsset.symbol, vaultData.assetDecimals || 18);
-      } else if (vaultData.sharePrice && vaultData.sharePrice > 0) {
-        // Fallback: use share price if convertToAssets result not available yet
-        const assetAmount = sharesDecimal * vaultData.sharePrice;
-        return formatAvailableBalance(assetAmount, derivedAsset.symbol, vaultData.assetDecimals || 18);
-      } else if (position.assets) {
-        // Final fallback: use position.assets if available
-        const assetAmount = parseFloat(position.assets) / Math.pow(10, vaultData.assetDecimals || 18);
-        return formatAvailableBalance(assetAmount, derivedAsset.symbol, vaultData.assetDecimals || 18);
-      }
+      return `Available: 0.00 ${derivedAsset.symbol}`;
+    }
+
+    const sharesBigInt = BigInt(vaultShareBalance);
+    
+    if (sharesBigInt === BigInt(0)) {
+      return `Available: 0.00 ${derivedAsset.symbol}`;
     }
     
-    return `Available: 0.00 ${derivedAsset.symbol}`;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromAccount, derivedAsset, vaultPosition, withdrawableAssetsBigInt]);
+    // Use convertToAssets for exact amount (no precision loss)
+    if (exactAssetAmount !== undefined) {
+      const assetAmount = parseFloat(formatUnits(exactAssetAmount, assetDecimals));
+      return formatAvailableBalance(assetAmount, derivedAsset.symbol, assetDecimals);
+    }
+    
+    // Show loading if convertToAssets not available yet
+    return `Loading...`;
+  }, [fromAccount, derivedAsset, vaultShareBalance, exactAssetAmount, morphoHoldings.isLoading]);
 
   // Get max amount as a number for validation
-  // For vaults, this returns the asset amount equivalent of the user's share balance
-  // Following Morpho's recommendation: use shares as the source of truth (maxRedeem approach)
+  // For vaults: returns exact asset amount from full share balance (no dust)
+  // For wallet tokens: returns full balance (no dust) except ETH which leaves gas reserve
   const getMaxAmount = useMemo(() => {
     if (!fromAccount || !derivedAsset) return null;
 
@@ -271,45 +256,57 @@ export default function TransactionsPage() {
         const toVault = toAccount as VaultAccount;
         const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase();
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
+          // For WETH vault deposits: can use all ETH + WETH (USDC can be used for gas on Base)
           return getCombinedEthWethBalance;
         }
       }
       
-      if (symbol === 'WETH' || symbol === 'ETH') {
-        return parseFloat(ethBalance || '0');
+      if (symbol === 'ETH') {
+        // For ETH: leave small dust amount (0.001 ETH) for gas
+        const ethBal = parseFloat(ethBalance || '0');
+        const gasReserve = 0.001; // 0.001 ETH reserve for gas
+        return Math.max(0, ethBal - gasReserve);
       }
       
+      if (symbol === 'WETH') {
+        // For WETH: use full balance (no dust)
+        const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
+        if (wethToken) {
+          return parseFloat(formatUnits(wethToken.balance, wethToken.decimals));
+        }
+        return 0;
+      }
+      
+      // For all other tokens (USDC, cbBTC, etc.): use full balance (no dust)
       const token = tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
       if (token) {
         return parseFloat(formatUnits(token.balance, token.decimals));
       }
     } else {
-      // For vault withdrawals: use shares as the source of truth (recommended by Morpho)
-      // Following ERC-4626 best practices: maxRedeem = user's share balance
+      // For vault withdrawals: use convertToAssets to get exact asset amount from full share balance
       const vaultAccount = fromAccount as VaultAccount;
-      const vaultData = getVaultData(vaultAccount.address);
-      const position = vaultPosition;
+      const assetDecimals = getAssetDecimals(vaultAccount.symbol);
 
-      if (position && vaultData) {
-        // Get user's share balance directly (this is the actual limit - maxRedeem approach)
-        const sharesBigInt = BigInt(position.shares);
-        const sharesDecimal = parseFloat(formatUnits(sharesBigInt, 18)); // Vault shares use 18 decimals
-        
-        if (sharesDecimal === 0) {
-          return 0;
-        }
-        
-        // Convert shares to assets using convertToAssets for accurate conversion
-        // This ensures we use the vault's own conversion logic which accounts for fees/performance
-        // Only use this method - no fallbacks
-        if (withdrawableAssetsBigInt !== undefined) {
-          return parseFloat(formatUnits(withdrawableAssetsBigInt, vaultData.assetDecimals || 18));
-        }
+      if (!vaultShareBalance) {
+        return 0;
       }
+
+      const sharesBigInt = BigInt(vaultShareBalance);
+      
+      if (sharesBigInt === BigInt(0)) {
+        return 0;
+      }
+      
+      // Use convertToAssets to get exact asset amount (no precision loss, includes all shares)
+      if (exactAssetAmount !== undefined) {
+        return parseFloat(formatUnits(exactAssetAmount, assetDecimals));
+      }
+      
+      // Return null to show loading if convertToAssets not available yet
+      return null;
     }
     return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromAccount, derivedAsset, toAccount, ethBalance, tokenBalances, vaultPosition, withdrawableAssetsBigInt, getCombinedEthWethBalance]);
+  }, [fromAccount, derivedAsset, toAccount, ethBalance, tokenBalances, vaultShareBalance, exactAssetAmount, getCombinedEthWethBalance]);
 
   // Calculate max amount for the selected "from" account
   const calculateMaxAmount = useCallback(() => {
@@ -318,21 +315,33 @@ export default function TransactionsPage() {
 
     if (fromAccount?.type === 'wallet') {
       const symbol = derivedAsset?.symbol || '';
-      if (symbol === 'WETH' || symbol === 'ETH') {
+      if (symbol === 'ETH') {
+        // For ETH: use calculated max (which already accounts for gas reserve)
         setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol) : '0');
+      } else if (symbol === 'WETH') {
+        // For WETH: use full balance
+        const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
+        if (wethToken) {
+          setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
+        } else {
+          setAmount('0');
+        }
       } else {
+        // For all other tokens (USDC, cbBTC, etc.): use full balance
         const token = tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
         if (token) {
           setAmount(formatBigIntForInput(token.balance, token.decimals));
+        } else {
+          setAmount('0');
         }
       }
     } else {
+      // For vault withdrawals: use exact asset amount from convertToAssets
       const vaultAccount = fromAccount as VaultAccount;
-      const vaultData = getVaultData(vaultAccount.address);
-      const decimals = vaultData?.assetDecimals || 18;
+      const decimals = getAssetDecimals(vaultAccount.symbol);
       setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
     }
-  }, [getMaxAmount, fromAccount, derivedAsset, tokenBalances, getVaultData, setAmount]);
+  }, [getMaxAmount, fromAccount, derivedAsset, tokenBalances, setAmount]);
 
   const handleAmountChange = (value: string) => {
     if (value === '') {
@@ -392,7 +401,6 @@ export default function TransactionsPage() {
     };
 
     const vaultAccounts: VaultAccount[] = Object.values(VAULTS).map((vault): VaultAccount => {
-      const vaultData = getVaultData(vault.address);
       const position = morphoHoldings.positions.find(
         (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
       );
@@ -404,7 +412,7 @@ export default function TransactionsPage() {
         symbol: vault.symbol,
         balance: position ? BigInt(position.shares) : BigInt(0),
         assetAddress: '',
-        assetDecimals: vaultData?.assetDecimals ?? 18,
+        assetDecimals: getAssetDecimals(vault.symbol),
       };
     });
 
@@ -420,7 +428,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [toAccount, morphoHoldings.positions, getVaultData]);
+  }, [toAccount, morphoHoldings.positions]);
 
   // Calculate available accounts for "To" selector
   const availableToAccounts = useMemo(() => {
@@ -438,7 +446,6 @@ export default function TransactionsPage() {
 
     const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
       .map((vault): VaultAccount => {
-        const vaultData = getVaultData(vault.address);
         const position = morphoHoldings.positions.find(
           (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
         );
@@ -450,7 +457,7 @@ export default function TransactionsPage() {
           symbol: vault.symbol,
           balance: position ? BigInt(position.shares) : BigInt(0),
           assetAddress: '',
-          assetDecimals: vaultData?.assetDecimals ?? 18,
+          assetDecimals: getAssetDecimals(vault.symbol),
         };
       });
 
@@ -468,7 +475,7 @@ export default function TransactionsPage() {
       const fromVault = fromAccount as unknown as VaultAccount;
       return accountVault.address.toLowerCase() !== fromVault.address.toLowerCase();
     });
-  }, [fromAccount, morphoHoldings.positions, getVaultData]);
+  }, [fromAccount, morphoHoldings.positions]);
 
   // Auto-select "From" account if there's only one option
   useEffect(() => {
@@ -534,9 +541,9 @@ export default function TransactionsPage() {
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-6 space-y-6">
+    <div className="w-full max-w-2xl mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-2">
+        <h1 className="text-xl md:text-2xl font-semibold text-[var(--foreground)] mb-2">
           Transfer Assets
         </h1>
         <p className="text-sm text-[var(--foreground-secondary)]">
@@ -548,7 +555,7 @@ export default function TransactionsPage() {
       <TransactionProgressBar steps={getProgressSteps()} isSuccess={status === 'success'} />
 
       {status === 'idle' && (
-        <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6 space-y-6">
+        <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6">
           {/* From Account */}
           <AccountSelector
             label="From"
@@ -574,7 +581,7 @@ export default function TransactionsPage() {
               type="button"
               onClick={handleFlipAccounts}
               disabled={!fromAccount || !toAccount}
-              className="p-2 rounded-lg bg-[var(--background)] border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:bg-[var(--surface-elevated)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-[var(--border-subtle)] disabled:hover:bg-[var(--background)]"
+              className="p-2 rounded-lg bg-[var(--background)] border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:bg-[var(--surface-elevated)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-[var(--border-subtle)] disabled:hover:bg-[var(--background)] cursor-pointer"
               aria-label="Flip accounts"
             >
               <Icon
@@ -617,7 +624,7 @@ export default function TransactionsPage() {
                   type="button"
                   onClick={calculateMaxAmount}
                   disabled={getMaxAmount === null}
-                  className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed disabled:hover:text-[var(--foreground-muted)]"
+                  className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed disabled:hover:text-[var(--foreground-muted)] cursor-pointer"
                 >
                   MAX
                 </button>

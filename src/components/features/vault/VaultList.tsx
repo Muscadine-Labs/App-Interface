@@ -12,7 +12,7 @@ interface VaultListProps {
 export default function VaultList({ onVaultSelect, selectedVaultAddress }: VaultListProps = {} as VaultListProps) {
     const { morphoHoldings } = useWallet();
     
-    // Sort vaults by user position (highest to lowest)
+    // Sort vaults by user position (highest to lowest) - use RPC positions from WalletContext
     const sortedVaults = useMemo(() => {
         const vaults: Vault[] = Object.values(VAULTS).map((vault) => ({
             address: vault.address,
@@ -23,18 +23,21 @@ export default function VaultList({ onVaultSelect, selectedVaultAddress }: Vault
 
         // Calculate position value for each vault and sort
         return vaults.sort((a, b) => {
+            // Use RPC positions from WalletContext (already calculated with balanceOf + convertToAssets)
             const positionA = morphoHoldings.positions.find(
                 pos => pos.vault.address.toLowerCase() === a.address.toLowerCase()
             );
             const positionB = morphoHoldings.positions.find(
                 pos => pos.vault.address.toLowerCase() === b.address.toLowerCase()
             );
-
-            const valueA = positionA 
-                ? (parseFloat(positionA.shares) / 1e18) * positionA.vault.state.sharePriceUsd 
+            
+            // Use assetsUsd from RPC position (calculated from asset amount * price)
+            const valueA = positionA && positionA.assetsUsd !== undefined && positionA.assetsUsd > 0
+                ? positionA.assetsUsd
                 : 0;
-            const valueB = positionB 
-                ? (parseFloat(positionB.shares) / 1e18) * positionB.vault.state.sharePriceUsd 
+            
+            const valueB = positionB && positionB.assetsUsd !== undefined && positionB.assetsUsd > 0
+                ? positionB.assetsUsd
                 : 0;
 
             // Sort descending (highest to lowest)

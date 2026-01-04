@@ -129,7 +129,7 @@ export function Toast({ toast, onRemove }: ToastProps) {
                     window.open(toast.actionUrl, '_blank');
                   }
                 }}
-                className="text-[var(--primary)] hover:underline font-medium"
+                className="text-[var(--primary)] hover:underline font-medium cursor-pointer"
               >
                 {toast.actionLabel || 'View'}
               </button>
@@ -139,7 +139,7 @@ export function Toast({ toast, onRemove }: ToastProps) {
       </div>
       <button
         onClick={handleRemove}
-        className="flex-shrink-0 text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors"
+        className="flex-shrink-0 text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
         aria-label="Close notification"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
