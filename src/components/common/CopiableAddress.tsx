@@ -36,7 +36,7 @@ export default function CopiableAddress({
   return (
     <button
       onClick={handleCopy}
-      className={`font-figtree text-sm transition-all duration-200 text-left ${className} text-[var(--foreground)] hover:text-[var(--primary)]`}
+      className={`font-figtree text-sm transition-all duration-200 text-left cursor-pointer ${className} text-[var(--foreground)] hover:text-[var(--primary)]`}
       title={`Click to copy: ${address}`}
     >
       {displayAddress}

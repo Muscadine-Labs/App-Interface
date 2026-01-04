@@ -105,7 +105,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                   document.body.removeChild(a);
                   window.URL.revokeObjectURL(url);
                 }}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)]"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)] cursor-pointer"
               >
                 Download CSV
               </button>
@@ -113,7 +113,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                 href={`https://debank.com/profile/${address}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)]"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)] cursor-pointer"
               >
                 View your Wallet portfolio
               </a>
@@ -123,7 +123,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
         {address && (
           <button
             onClick={() => setShowUserOnly(!showUserOnly)}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)]"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)] cursor-pointer"
           >
             {showUserOnly ? 'Show All' : 'Show Mine'}
           </button>

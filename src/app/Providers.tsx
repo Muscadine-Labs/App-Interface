@@ -14,7 +14,6 @@ import { ApolloProvider } from '@apollo/client/react'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
-import { TransactionModalProvider } from '../contexts/TransactionModalContext'
 import { ToastProvider } from '../contexts/ToastContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'
@@ -61,13 +60,11 @@ export function Providers({ children, initialState }: Props) {
               <ThemeProvider>
                 <ToastProvider>
                   <WalletProvider>
-                    <TransactionModalProvider>
-                      <VaultDataProvider>
-                        <TransactionProvider>
-                          {children}
-                        </TransactionProvider>
-                      </VaultDataProvider>
-                    </TransactionModalProvider>
+                    <VaultDataProvider>
+                      <TransactionProvider>
+                        {children}
+                      </TransactionProvider>
+                    </VaultDataProvider>
                   </WalletProvider>
                 </ToastProvider>
               </ThemeProvider>

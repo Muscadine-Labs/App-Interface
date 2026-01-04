@@ -18,7 +18,7 @@ export default function VaultTabs({ activeTab, onTabChange }: VaultTabsProps) {
         <button
           key={tab.id}
           onClick={() => onTabChange(tab.id)}
-          className={`px-4 sm:px-6 py-4 text-base font-medium transition-colors relative ${
+          className={`px-4 sm:px-6 py-4 text-base font-medium transition-colors relative cursor-pointer ${
             activeTab === tab.id
               ? 'text-[var(--foreground)]'
               : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'

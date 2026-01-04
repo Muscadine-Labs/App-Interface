@@ -94,7 +94,7 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
                 <button
                   key={vault.address}
                   onClick={(e) => handleVaultClick(vault.address, e)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors ${
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${
                     isCurrentVault ? 'bg-[var(--primary-subtle)]' : ''
                   }`}
                 >

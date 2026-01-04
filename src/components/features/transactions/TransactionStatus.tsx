@@ -27,7 +27,7 @@ export function TransactionStatus({ type, message, txHash, onRetry }: Transactio
               href={`https://basescan.org/tx/${txHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors mt-1 inline-flex items-center gap-1"
+              className="text-xs text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors mt-1 inline-flex items-center gap-1 cursor-pointer"
             >
               <span className="font-mono">{`${txHash.slice(0, 6)}...${txHash.slice(-4)}`}</span>
               <svg
