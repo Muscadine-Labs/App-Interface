@@ -31,14 +31,6 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const [showUserOnly, setShowUserOnly] = useState(true);
 
   useEffect(() => {
-    // Skip fetching for V2 vaults - they don't expose transaction history yet
-    if (vaultData.version === 'v2') {
-      setTransactions([]);
-      setUserTransactions([]);
-      setLoading(false);
-      return;
-    }
-
     const fetchActivity = async () => {
       setLoading(true);
       try {
@@ -219,17 +211,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           </div>
         ) : (
           <div className="text-center py-12">
-            {vaultData.version === 'v2' ? (
-              <p className="text-sm text-[var(--foreground-muted)]">
-                Coming soon, morpho api does not expose historical data yet.
-              </p>
-            ) : (
-              <p className="text-sm text-[var(--foreground-muted)]">
-                {showUserOnly && address 
-                  ? "You haven't made any transactions yet"
-                  : 'No recent activity'}
-              </p>
-            )}
+            <p className="text-sm text-[var(--foreground-muted)]">
+              {showUserOnly && address 
+                ? "You haven't made any transactions yet"
+                : 'No recent activity'}
+            </p>
           </div>
         )}
       </div>

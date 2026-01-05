@@ -76,11 +76,12 @@ export interface GraphQLV2TransactionItem {
   vault?: {
     address: string;
   };
-  user?: {
-    address: string;
-  };
   shares?: string;
-  assets?: string;
+  data?: {
+    assets?: number;
+    sender?: string;
+    onBehalf?: string;
+  };
 }
 
 // Allocation Types
