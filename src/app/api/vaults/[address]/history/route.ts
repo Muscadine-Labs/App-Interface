@@ -2,17 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-
-// Input validation helpers
-
-function isValidChainId(chainId: string): boolean {
-  const id = parseInt(chainId, 10);
-  return !isNaN(id) && id > 0 && id <= 2147483647;
-}
-
-function isValidPeriod(period: string): boolean {
-  return ['7d', '30d', '90d', '1y', 'all'].includes(period);
-}
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -64,24 +54,11 @@ export async function GET(
     const chainId = parseInt(chainIdParam, 10);
     // Calculate time range based on period
     const now = Math.floor(Date.now() / 1000);
-    const periodSeconds: Record<string, number> = {
-      '7d': 7 * 24 * 60 * 60,
-      '30d': 30 * 24 * 60 * 60,
-      '90d': 90 * 24 * 60 * 60,
-      '1y': 365 * 24 * 60 * 60,
-    };
     // For 'all', set startTime to 0 (epoch start) to fetch all available data
-    const startTime = period === 'all' ? 0 : (now - (periodSeconds[period] || periodSeconds['30d']));
+    const startTime = period === 'all' ? 0 : (now - (PERIOD_SECONDS[period] || PERIOD_SECONDS['30d']));
 
     // Determine interval based on period
-    const intervalMap: Record<string, string> = {
-      '7d': 'HOUR',
-      '30d': 'HOUR', // Use hourly for 30d to get better granularity
-      '90d': 'DAY',
-      '1y': 'DAY',
-      'all': 'DAY', // Use DAY interval for all data
-    };
-    const interval = intervalMap[period] || 'DAY';
+    const interval = INTERVAL_MAP[period] || 'DAY';
 
     const query = `
       query VaultHistory($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
@@ -346,7 +323,7 @@ export async function GET(
           netApy: netApyValue * 100,
         };
       })
-      .filter(item => item.timestamp >= 1759795200); // Filter out data before October 7, 2025 00:00:00 UTC
+      .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
 
     return NextResponse.json({
       history,

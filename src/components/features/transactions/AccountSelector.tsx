@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import Image from 'next/image';
 import { Account, WalletAccount, VaultAccount, getVaultLogo } from '@/types/vault';
 import { useWallet } from '@/contexts/WalletContext';
@@ -64,53 +64,54 @@ export function AccountSelector({
   // 1. If no filter: showing all accounts (wallet should be available)
   // 2. If filter is set: "from" is a vault, so wallet should be available as withdrawal destination
   //    (user doesn't need to already have the token - they're withdrawing TO wallet)
-  const walletAccounts: WalletAccount[] = [];
-  
-  // Always show wallet (filter is only used to filter vaults, not wallet availability)
-  walletAccounts.push({
-    type: 'wallet',
-    address: 'wallet',
-    symbol: 'Wallet', // Generic symbol for wallet
-    balance: BigInt(0), // Balance will be calculated based on selected asset
-  });
+  const walletAccounts: WalletAccount[] = useMemo(() => {
+    return [{
+      type: 'wallet' as const,
+      address: 'wallet',
+      symbol: 'Wallet', // Generic symbol for wallet
+      balance: BigInt(0), // Balance will be calculated based on selected asset
+    }];
+  }, []);
 
   // Build vault account options - filter by asset symbol if provided
   // Always show at least some vaults (if no filter, show all; if filter, show matching)
-  const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
-    .filter((vault) => {
-      // If filter is set, only include vaults with matching asset symbol
-      if (filterByAssetSymbol) {
-        return vault.symbol.toUpperCase() === filterByAssetSymbol.toUpperCase();
-      }
-      return true; // Show all vaults if no filter
-    })
-    .map((vault): VaultAccount => {
-      const vaultData = getVaultData(vault.address);
-      const position = morphoHoldings.positions.find(
-        (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
-      );
+  const vaultAccounts: VaultAccount[] = useMemo(() => {
+    return Object.values(VAULTS)
+      .filter((vault) => {
+        // If filter is set, only include vaults with matching asset symbol
+        if (filterByAssetSymbol) {
+          return vault.symbol.toUpperCase() === filterByAssetSymbol.toUpperCase();
+        }
+        return true; // Show all vaults if no filter
+      })
+      .map((vault): VaultAccount => {
+        const vaultData = getVaultData(vault.address);
+        const position = morphoHoldings.positions.find(
+          (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
+        );
 
-      // Calculate user's withdrawable balance (in assets, not shares)
-      let balance = BigInt(0);
-      if (position && vaultData) {
-        const shares = BigInt(position.shares);
-        // For now, use shares directly - will be converted to assets during transaction
-        balance = shares;
-      }
+        // Calculate user's withdrawable balance (in assets, not shares)
+        let balance = BigInt(0);
+        if (position && vaultData) {
+          const shares = BigInt(position.shares);
+          // For now, use shares directly - will be converted to assets during transaction
+          balance = shares;
+        }
 
-      return {
-        type: 'vault' as const,
-        address: vault.address,
-        name: vault.name,
-        symbol: vault.symbol,
-        balance,
-        assetAddress: '', // Will be fetched from vault contract during transaction
-        assetDecimals: vaultData?.assetDecimals ?? 18,
-      };
-    });
+        return {
+          type: 'vault' as const,
+          address: vault.address,
+          name: vault.name,
+          symbol: vault.symbol,
+          balance,
+          assetAddress: '', // Will be fetched from vault contract during transaction
+          assetDecimals: vaultData?.assetDecimals ?? 18,
+        };
+      });
+  }, [filterByAssetSymbol, getVaultData, morphoHoldings.positions]);
 
   // Calculate USD value for sorting accounts
-  const getAccountUsdValue = (account: Account): number => {
+  const getAccountUsdValue = useCallback((account: Account): number => {
     if (account.type === 'wallet') {
       // For wallet, calculate USD value based on assetSymbol
       if (!assetSymbol) {
@@ -173,7 +174,7 @@ export function AccountSelector({
       
       return 0;
     }
-  };
+  }, [assetSymbol, ethBalance, ethPrice, btcPrice, tokenBalances, morphoHoldings.positions]);
 
   // Filter and sort accounts based on compatibility and USD value
   const availableAccounts = useMemo(() => {
@@ -212,8 +213,7 @@ export function AccountSelector({
       const valueB = getAccountUsdValue(b);
       return valueB - valueA; // Descending order (highest first)
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walletAccounts, vaultAccounts, excludeAccount, assetSymbol, ethBalance, ethPrice, btcPrice, tokenBalances, morphoHoldings.positions]);
+  }, [walletAccounts, vaultAccounts, excludeAccount, getAccountUsdValue]);
 
   // Calculate balance value (returns string or number with symbol and decimals)
   const getBalanceValue = (account: Account, assetSymbol?: string): { value: string | number; symbol: string; decimals?: number } | null => {

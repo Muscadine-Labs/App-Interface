@@ -15,17 +15,7 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 
 import { logger } from '@/lib/logger';
 import { useRouter } from 'next/navigation';
-
-// ERC-4626 ABI for convertToAssets
-const ERC4626_ABI = [
-  {
-    inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
-    name: 'convertToAssets',
-    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
+import { ERC4626_ABI } from '@/lib/abis';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;

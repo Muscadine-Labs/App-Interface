@@ -13,28 +13,7 @@ import { usePrices } from '@/contexts/PriceContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
-
-// ERC20 ABI for balanceOf
-const ERC20_BALANCE_ABI = [
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
-// ERC4626 ABI for convertToAssets
-const ERC4626_ABI = [
-  {
-    inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
-    name: 'convertToAssets',
-    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -125,7 +104,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       // Get asset price (same as liquid assets)
       let assetPrice = 0;
       const symbolUpper = vaultData.symbol.toUpperCase();
-      if (symbolUpper === 'USDC' || symbolUpper === 'USDT' || symbolUpper === 'DAI') {
+      if (symbolUpper === 'USDC') {
         assetPrice = 1;
       } else if (symbolUpper === 'WETH') {
         assetPrice = ethPrice || 0;
@@ -213,6 +192,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   // Fetch hourly data for 7D period
   useEffect(() => {
+    const abortController = new AbortController();
+    
     const fetch7dHourlyPosition = async () => {
       if (!address) {
         setHourly7dPositionHistory([]);
@@ -222,7 +203,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       try {
         // Fetch 7D data with hourly intervals
         const response = await fetch(
-          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=7d`
+          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=7d`,
+          { signal: abortController.signal }
         );
         
         if (!response.ok) {
@@ -238,6 +220,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           setHourly7dPositionHistory([]);
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         // Silently fail, will fall back to daily data
         logger.warn(
           'Failed to fetch 7D hourly position data, falling back to daily',
@@ -253,10 +236,13 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     };
 
     fetch7dHourlyPosition();
+    return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, address]);
 
   // Fetch hourly data for 30D period
   useEffect(() => {
+    const abortController = new AbortController();
+    
     const fetch30dHourlyPosition = async () => {
       if (!address) {
         setHourly30dPositionHistory([]);
@@ -266,7 +252,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       try {
         // Fetch 30D data with hourly intervals
         const response = await fetch(
-          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=30d`
+          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=30d`,
+          { signal: abortController.signal }
         );
         
         if (!response.ok) {
@@ -282,6 +269,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           setHourly30dPositionHistory([]);
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         // Silently fail, will fall back to daily data
         logger.warn(
           'Failed to fetch 30D hourly position data, falling back to daily',
@@ -297,6 +285,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     };
 
     fetch30dHourlyPosition();
+    return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, address]);
 
   // Use GraphQL position history data directly - no calculation needed
