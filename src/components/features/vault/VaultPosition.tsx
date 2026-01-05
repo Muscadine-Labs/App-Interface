@@ -288,6 +288,19 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, address]);
 
+  // Get asset price for calculating USD value when assetsUsd is 0
+  const getAssetPrice = useMemo(() => {
+    const symbolUpper = vaultData.symbol.toUpperCase();
+    if (symbolUpper === 'USDC') {
+      return 1;
+    } else if (symbolUpper === 'WETH' || symbolUpper === 'ETH') {
+      return ethPrice || 0;
+    } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC' || symbolUpper === 'BTC') {
+      return btcPrice || 0;
+    }
+    return 0;
+  }, [vaultData.symbol, ethPrice, btcPrice]);
+
   // Use GraphQL position history data directly - no calculation needed
   const userDepositHistory = useMemo(() => {
     // Use hourly data for 7D and 30D periods, otherwise use daily data
@@ -301,13 +314,20 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     if (sourceData.length === 0) return [];
 
     // Map GraphQL position history to chart data format
-    return sourceData.map((point) => ({
-      timestamp: point.timestamp,
-      date: formatDate(point.timestamp),
-      valueUsd: Math.max(0, point.assetsUsd),
-      valueToken: Math.max(0, point.assets),
-    }));
-  }, [userPositionHistory, hourly7dPositionHistory, hourly30dPositionHistory, selectedTimeFrame]);
+    return sourceData.map((point) => {
+      // If assetsUsd is 0 but assets exists, calculate USD value from assets * assetPrice
+      let calculatedUsd = point.assetsUsd;
+      if (calculatedUsd === 0 && point.assets > 0 && getAssetPrice > 0) {
+        calculatedUsd = point.assets * getAssetPrice;
+      }
+      return {
+        timestamp: point.timestamp,
+        date: formatDate(point.timestamp),
+        valueUsd: Math.max(0, calculatedUsd),
+        valueToken: Math.max(0, point.assets),
+      };
+    });
+  }, [userPositionHistory, hourly7dPositionHistory, hourly30dPositionHistory, selectedTimeFrame, getAssetPrice]);
 
   // Calculate available time frames based on data range
   const availableTimeFrames = useMemo(() => {
