@@ -102,8 +102,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     isLoading: false,
     error: null,
   });
-  const [loading] = useState(false);
-  const [error] = useState<string | null>(null);
   
   // Debounced wallet state to prevent rapid state changes during auth flows
   const [stableIsConnected, setStableIsConnected] = useState(isConnected);
@@ -857,8 +855,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     morphoUsdValue: formatCurrency(morphoHoldings.totalValueUsd),
     tokenBalances, // Now includes all major tokens with non-zero balances
     morphoHoldings,
-    loading,
-    error,
+    loading: morphoHoldings.isLoading,
+    error: morphoHoldings.error,
     refreshBalances,
     refreshBalancesWithRetry,
     refreshBalancesWithPolling,

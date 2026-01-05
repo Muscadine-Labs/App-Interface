@@ -80,8 +80,8 @@ export function AccountSelector({
   const vaultAccounts: VaultAccount[] = useMemo(() => {
     return Object.values(VAULTS)
       .filter((vault) => {
-        // Filter by version first
-        if (vault.version !== version) {
+        // Filter by version first - if version is 'all', show all vaults
+        if (version !== 'all' && vault.version !== version) {
           return false;
         }
         // If filter is set, only include vaults with matching asset symbol

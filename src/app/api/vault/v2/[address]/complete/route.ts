@@ -1,15 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
-
-// Input validation helpers
-function isValidEthereumAddress(address: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(address);
-}
-
-function isValidChainId(chainId: string): boolean {
-  const id = parseInt(chainId, 10);
-  return !isNaN(id) && id > 0 && id <= 2147483647;
-}
+import { isValidEthereumAddress } from '@/lib/vault-utils';
+import { isValidChainId } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -40,7 +32,8 @@ export async function GET(
 
     const chainId = parseInt(chainIdParam, 10);
     
-    // V2 vaults use vaultV2ByAddress and have a flatter structure
+    // V2 vaults use vaultV2ByAddress per Morpho API docs
+    // https://docs.morpho.org/tools/offchain/api/morpho-vaults/
     const query = `
       query VaultComplete($address: String!, $chainId: Int!) {
         vaultV2ByAddress(address: $address, chainId: $chainId) {
@@ -55,29 +48,88 @@ export async function GET(
             decimals
             name
             priceUsd
+            yield {
+              apr
+            }
           }
           
-          # Metadata (V2 metadata doesn't have curators)
+          # Metadata
           metadata {
             description
             forumLink
             image
           }
           
-          # Allocators (V2 uses allocator { address } structure)
+          # Total Deposits & Assets
+          totalAssets
+          totalAssetsUsd
+          totalSupply
+          liquidity
+          liquidityUsd
+          idleAssetsUsd
+          
+          # APY (Native + Rewards)
+          avgApy
+          avgNetApy
+          maxApy
+          performanceFee
+          managementFee
+          maxRate
+          
+          # Rewards
+          rewards {
+            asset {
+              address
+              chain {
+                id
+              }
+            }
+            supplyApr
+            yearlySupplyTokens
+          }
+          
+          # Allocation & Strategy (V2 uses adapters)
+          adapters {
+            items {
+              address
+              assets
+              assetsUsd
+              type
+            }
+          }
+          
+          # Configuration & Curation
           allocators {
             allocator {
               address
             }
           }
+          owner {
+            address
+          }
+          curators {
+            items {
+              addresses {
+                address
+              }
+            }
+          }
+          sentinels {
+            sentinel {
+              address
+            }
+          }
+          timelocks {
+            duration
+            selector
+            functionName
+          }
           
-          # Basic metrics (v2 has these at top level)
-          totalAssets
-          totalAssetsUsd
-          totalSupply
-          avgApy
-          avgNetApy
-          maxApy
+          # Risk Indicators
+          warnings {
+            type
+            level
+          }
         }
       }
     `;
@@ -206,4 +258,5 @@ export async function GET(
     );
   }
 }
+
 

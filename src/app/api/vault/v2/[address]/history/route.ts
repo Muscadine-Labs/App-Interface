@@ -85,10 +85,6 @@ export async function GET(
               x
               y
             }
-            sharePrice(options: $options) {
-              x
-              y
-            }
             totalSupply(options: $options) {
               x
               y
@@ -132,6 +128,11 @@ export async function GET(
     );
     
     if (data.errors && !hasNotFoundError) {
+      logger.error(
+        'GraphQL errors in V2 history query',
+        new Error(data.errors[0]?.message || 'GraphQL query failed'),
+        { address, chainId, period, errors: data.errors }
+      );
       return NextResponse.json({
         history: [],
         period,
@@ -140,10 +141,34 @@ export async function GET(
         error: data.errors[0]?.message || 'GraphQL query failed',
       });
     }
+    
+    if (hasNotFoundError) {
+      logger.warn(
+        'V2 vault not found or has no historical data',
+        { address, chainId, period, errors: data.errors }
+      );
+    }
 
     const vaultData = data.data?.vaultV2ByAddress;
     
-    if (!vaultData || !vaultData.historicalState) {
+    if (!vaultData) {
+      logger.warn(
+        'No vault data returned from GraphQL for V2 history',
+        { address, chainId, period, data: data.data }
+      );
+      return NextResponse.json({
+        history: [],
+        period,
+        cached: false,
+        timestamp: Date.now(),
+      });
+    }
+    
+    if (!vaultData.historicalState) {
+      logger.warn(
+        'No historicalState returned from GraphQL for V2 vault',
+        { address, chainId, period, vaultData: { address: vaultData.address, name: vaultData.name } }
+      );
       return NextResponse.json({
         history: [],
         period,
@@ -157,8 +182,7 @@ export async function GET(
     const netApyData = vaultData.historicalState.avgNetApy || [];
     const totalAssetsUsdData = vaultData.historicalState.totalAssetsUsd || [];
     const totalAssetsData = vaultData.historicalState.totalAssets || [];
-    const sharePriceData = vaultData.historicalState.sharePrice || [];
-    // V2 vaults don't have sharePriceUsd in historicalState
+    // V2 vaults don't have sharePrice in historicalState - must calculate from totalAssets/totalSupply
     const totalSupplyData = vaultData.historicalState.totalSupply || [];
     
     const assetDecimals = vaultData.asset?.decimals || 18;
@@ -169,7 +193,6 @@ export async function GET(
     netApyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
     totalAssetsUsdData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
     totalAssetsData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
-    sharePriceData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
     totalSupplyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
 
     const apyMap = new Map(apyData.map((p: { x: number; y: number }) => [p.x, p.y]));
@@ -177,6 +200,16 @@ export async function GET(
     const totalAssetsUsdMap = new Map(totalAssetsUsdData.map((p: { x: number; y: number }) => [p.x, p.y]));
     const totalAssetsMap = new Map(totalAssetsData.map((p: { x: number; y: number }) => [p.x, p.y]));
     const totalSupplyMap = new Map(totalSupplyData.map((p: { x: number; y: number }) => [p.x, p.y]));
+
+    // If no timestamps found, return empty history
+    if (timestamps.size === 0) {
+      return NextResponse.json({
+        history: [],
+        period,
+        cached: false,
+        timestamp: Date.now(),
+      });
+    }
 
     const history = Array.from(timestamps)
       .sort((a, b) => a - b)
@@ -281,7 +314,14 @@ export async function GET(
           netApy: netApyValue * 100,
         };
       })
-      .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
+      .filter(item => {
+        // Only filter by MIN_VALID_TIMESTAMP if it's a reasonable date (not in the future)
+        const now = Math.floor(Date.now() / 1000);
+        if (MIN_VALID_TIMESTAMP > now) {
+          return true; // Don't filter if MIN_VALID_TIMESTAMP is in the future
+        }
+        return item.timestamp >= MIN_VALID_TIMESTAMP;
+      });
 
     return NextResponse.json({
       history,
@@ -311,4 +351,3 @@ export async function GET(
     );
   }
 }
-

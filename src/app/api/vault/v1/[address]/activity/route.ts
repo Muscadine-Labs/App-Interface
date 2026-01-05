@@ -2,16 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLResponse, GraphQLTransactionsData, GraphQLTransactionItem, Transaction } from '@/types/api';
 import { DEFAULT_ASSET_PRICE, DEFAULT_ASSET_DECIMALS, STABLECOIN_SYMBOLS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
-
-// Input validation helpers
-function isValidEthereumAddress(address: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(address);
-}
-
-function isValidChainId(chainId: string): boolean {
-  const id = parseInt(chainId, 10);
-  return !isNaN(id) && id > 0 && id <= 2147483647;
-}
+import { isValidEthereumAddress } from '@/lib/vault-utils';
+import { isValidChainId } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -355,4 +347,5 @@ export async function GET(
     );
   }
 }
+
 
