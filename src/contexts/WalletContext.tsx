@@ -8,6 +8,7 @@ import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { VAULTS } from '@/lib/vaults';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
+import { getVaultVersion } from '@/lib/vault-utils';
 
 export interface TokenBalance {
   address: string;
@@ -101,8 +102,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     isLoading: false,
     error: null,
   });
-  const [loading] = useState(false);
-  const [error] = useState<string | null>(null);
   
   // Debounced wallet state to prevent rapid state changes during auth flows
   const [stableIsConnected, setStableIsConnected] = useState(isConnected);
@@ -343,7 +342,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           }) as bigint;
 
           // Step 3: Fetch vault metadata to get vault info (for sharePriceUsd, etc.)
-          const vaultResponse = await fetch(`/api/vaults/${vaultInfo.address}/complete?chainId=${vaultInfo.chainId}`);
+          const vaultVersion = getVaultVersion(vaultInfo.address);
+          const vaultResponse = await fetch(`/api/vault/${vaultVersion}/${vaultInfo.address}/complete?chainId=${vaultInfo.chainId}`);
           if (!vaultResponse.ok) {
             return null;
           }
@@ -855,8 +855,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     morphoUsdValue: formatCurrency(morphoHoldings.totalValueUsd),
     tokenBalances, // Now includes all major tokens with non-zero balances
     morphoHoldings,
-    loading,
-    error,
+    loading: morphoHoldings.isLoading,
+    error: morphoHoldings.error,
     refreshBalances,
     refreshBalancesWithRetry,
     refreshBalancesWithPolling,

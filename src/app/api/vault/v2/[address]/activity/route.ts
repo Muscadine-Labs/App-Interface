@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { GraphQLResponse, GraphQLTransactionsData, GraphQLTransactionItem, Transaction } from '@/types/api';
+import type { GraphQLResponse, GraphQLTransactionsData, GraphQLV2TransactionItem, Transaction } from '@/types/api';
 import { DEFAULT_ASSET_PRICE, DEFAULT_ASSET_DECIMALS, STABLECOIN_SYMBOLS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
-
-// Input validation helpers
-function isValidEthereumAddress(address: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(address);
-}
-
-function isValidChainId(chainId: string): boolean {
-  const id = parseInt(chainId, 10);
-  return !isNaN(id) && id > 0 && id <= 2147483647; // Max safe integer
-}
+import { isValidEthereumAddress } from '@/lib/vault-utils';
+import { isValidChainId } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -19,7 +11,7 @@ export async function GET(
 ) {
   const { searchParams } = new URL(request.url);
   const chainIdParam = searchParams.get('chainId') || '8453';
-  const userAddress = searchParams.get('userAddress'); // Optional: filter by user
+  const userAddress = searchParams.get('userAddress');
   
   let address: string | undefined;
   try {
@@ -66,49 +58,53 @@ export async function GET(
       );
     }
 
-    const chainId = chainIdParam;
-    // Properly escape for GraphQL: escape backslashes first, then quotes
+    const chainId = parseInt(chainIdParam, 10);
+    
+    // Properly escape for GraphQL
     const escapedAddress = address.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const escapedUserAddress = userAddress ? userAddress.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : null;
-    const whereClause = [
-      `vaultAddress_in: ["${escapedAddress}"]`,
-      `type_in: [MetaMorphoDeposit, MetaMorphoWithdraw]`,
-      ...(escapedUserAddress ? [`userAddress_in: ["${escapedUserAddress}"]`] : [])
-    ].join(', ');
-
-    // Fetch all transactions with pagination if userAddress is provided
-    // Otherwise, limit to 100 for performance
+    
+    // V2 vaults use vaultV2transactions query per Morpho API docs
+    // https://docs.morpho.org/tools/offchain/api/morpho-vaults/
     const transactionLimit = userAddress ? 1000 : 100;
     
+    // Build where clause for vaultV2transactions
+    const whereClause = [
+      `vaultAddress_in: ["${escapedAddress}"]`,
+      ...(escapedUserAddress ? [`userAddress_in: ["${escapedUserAddress}"]`] : [])
+    ].join(', ');
+    
     const query = `
-      query VaultActivity {
-        transactions(
+      query VaultV2Activity {
+        vaultV2transactions(
           first: ${transactionLimit}
-          orderBy: Timestamp
+          skip: 0
+          orderBy: Time
           orderDirection: Desc
           where: { 
             ${whereClause}
           }
         ) {
           items {
-            hash
+            txHash
             timestamp
             type
             blockNumber
-            chain {
-              id
-              network
-            }
-            user {
+            txIndex
+            vault {
               address
             }
+            shares
             data {
-              ... on VaultTransactionData {
-                shares
+              ... on VaultV2DepositData {
                 assets
-                vault {
-                  address
-                }
+                sender
+                onBehalf
+              }
+              ... on VaultV2WithdrawData {
+                assets
+                sender
+                onBehalf
               }
             }
           }
@@ -131,7 +127,7 @@ export async function GET(
           query,
         }),
         next: { 
-          revalidate: 60, // 1 minute - activity data changes frequently
+          revalidate: 60,
         },
       });
 
@@ -140,7 +136,6 @@ export async function GET(
       try {
         data = JSON.parse(responseText) as GraphQLResponse<GraphQLTransactionsData>;
       } catch (parseError) {
-        // If JSON parsing fails, return empty results instead of throwing
         logger.error(
           'Failed to parse GraphQL response',
           parseError instanceof Error ? parseError : new Error(String(parseError)),
@@ -157,10 +152,9 @@ export async function GET(
         });
       }
 
-      // Handle GraphQL errors gracefully
       if (data.errors && data.errors.length > 0) {
         logger.warn(
-          'GraphQL errors in activity query',
+          'GraphQL errors in V2 activity query',
           { 
             address, 
             chainId: chainIdParam,
@@ -178,7 +172,6 @@ export async function GET(
         });
       }
 
-      // If HTTP response is not ok but we have valid JSON, still try to process
       if (!response.ok && !data.errors) {
         logger.warn(
           'Non-OK HTTP response from Morpho API',
@@ -200,7 +193,6 @@ export async function GET(
         });
       }
     } catch (fetchError) {
-      // Network or fetch errors
       logger.error(
         'Failed to fetch from Morpho GraphQL API',
         fetchError instanceof Error ? fetchError : new Error(String(fetchError)),
@@ -217,14 +209,15 @@ export async function GET(
       });
     }
 
-    const vaultV1Txs = data.data?.transactions?.items || [];
+    // V2 uses vaultV2transactions which already filters by vault address
+    const vaultTxs = data.data?.vaultV2transactions?.items || [];
     let assetPrice = DEFAULT_ASSET_PRICE;
     let assetDecimals = DEFAULT_ASSET_DECIMALS;
     
     try {
       const vaultQuery = `
         query VaultAssetInfo($address: String!, $chainId: Int!) {
-          vaultByAddress(address: $address, chainId: $chainId) {
+          vaultV2ByAddress(address: $address, chainId: $chainId) {
             asset {
               symbol
               decimals
@@ -244,15 +237,15 @@ export async function GET(
           query: vaultQuery,
           variables: {
             address,
-            chainId: parseInt(chainId),
+            chainId,
           },
         }),
       });
       
       if (vaultResponse.ok) {
         const vaultData = await vaultResponse.json();
-        const vaultInfo = vaultData.data?.vaultByAddress;
-          if (vaultInfo?.asset) {
+        const vaultInfo = vaultData.data?.vaultV2ByAddress;
+        if (vaultInfo?.asset) {
           assetDecimals = vaultInfo.asset.decimals || DEFAULT_ASSET_DECIMALS;
           assetPrice = vaultInfo.asset.priceUsd || DEFAULT_ASSET_PRICE;
           
@@ -270,7 +263,6 @@ export async function GET(
                   assetPrice = priceData[priceKey] || DEFAULT_ASSET_PRICE;
                 }
               } catch (error) {
-                // Log error but continue with default price
                 logger.error(
                   `Failed to fetch price for ${symbol}`,
                   error instanceof Error ? error : new Error(String(error)),
@@ -282,7 +274,6 @@ export async function GET(
         }
       }
     } catch (error) {
-      // Log error but continue with default values
       logger.error(
         'Failed to fetch vault asset info',
         error instanceof Error ? error : new Error(String(error)),
@@ -290,12 +281,19 @@ export async function GET(
       );
     }
 
-    const transactions: Transaction[] = vaultV1Txs.map((tx: GraphQLTransactionItem) => {
-      let assetsUsd = tx.data?.assetsUsd;
+    const transactions: Transaction[] = vaultTxs.map((tx: GraphQLV2TransactionItem) => {
+      // V2 transactions have direct fields: shares, and data.assets
+      // Use data.assets if available, otherwise calculate from shares
+      let assetsRaw: string | undefined;
+      if (tx.data?.assets !== undefined && tx.data.assets !== null) {
+        // assets is a number in V2, convert to string
+        assetsRaw = tx.data.assets.toString();
+      }
       
-      if (!assetsUsd && tx.data?.assets) {
+      let assetsUsd = 0;
+      if (assetsRaw) {
         try {
-          const assetsBigInt = BigInt(tx.data.assets || '0');
+          const assetsBigInt = BigInt(assetsRaw);
           const assetsDecimal = Number(assetsBigInt) / Math.pow(10, assetDecimals);
           assetsUsd = assetsDecimal * assetPrice;
         } catch {
@@ -303,17 +301,23 @@ export async function GET(
         }
       }
       
+      // V2 uses "Deposit" and "Withdraw" types (not MetaMorphoDeposit/MetaMorphoWithdraw)
+      const transactionType = tx.type === 'Deposit' ? 'deposit' as const : 
+                              tx.type === 'Withdraw' ? 'withdraw' as const : 
+                              'event' as const;
+      
+      // User address comes from data.sender or data.onBehalf
+      const userAddr = tx.data?.sender || tx.data?.onBehalf;
+      
       return {
-        id: tx.hash,
-        type: tx.type === 'MetaMorphoDeposit' ? 'deposit' as const : 
-              tx.type === 'MetaMorphoWithdraw' ? 'withdraw' as const : 
-              'event' as const,
+        id: tx.txHash,
+        type: transactionType,
         timestamp: tx.timestamp,
         blockNumber: tx.blockNumber,
-        transactionHash: tx.hash,
-        user: tx.user?.address,
-        assets: tx.data?.assets,
-        shares: tx.data?.shares,
+        transactionHash: tx.txHash,
+        user: userAddr,
+        assets: assetsRaw,
+        shares: tx.shares,
         assetsUsd: assetsUsd || 0,
       };
     })
@@ -358,4 +362,3 @@ export async function GET(
     );
   }
 }
-

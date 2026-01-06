@@ -10,7 +10,7 @@ export async function GET(
 ) {
   const { searchParams } = new URL(request.url);
   const chainIdParam = searchParams.get('chainId') || '8453';
-  const period = searchParams.get('period') || '30d'; // 7d, 30d, 90d, 1y
+  const period = searchParams.get('period') || '30d';
   
   let address: string | undefined;
   try {
@@ -52,6 +52,7 @@ export async function GET(
     }
 
     const chainId = parseInt(chainIdParam, 10);
+    
     // Calculate time range based on period
     const now = Math.floor(Date.now() / 1000);
     // For 'all', set startTime to 0 (epoch start) to fetch all available data
@@ -60,6 +61,7 @@ export async function GET(
     // Determine interval based on period
     const interval = INTERVAL_MAP[period] || 'DAY';
 
+    // V1 vaults use apy and netApy
     const query = `
       query VaultHistory($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
         vaultByAddress(address: $address, chainId: $chainId) {
@@ -147,9 +149,9 @@ export async function GET(
       });
     }
 
-    const vaultV1 = data.data?.vaultByAddress;
+    const vaultData = data.data?.vaultByAddress;
     
-    if (!vaultV1 || !vaultV1.historicalState) {
+    if (!vaultData || !vaultData.historicalState) {
       return NextResponse.json({
         history: [],
         period,
@@ -158,16 +160,16 @@ export async function GET(
       });
     }
     
-    const apyData = vaultV1.historicalState.apy || [];
-    const netApyData = vaultV1.historicalState.netApy || [];
-    const totalAssetsUsdData = vaultV1.historicalState.totalAssetsUsd || [];
-    const totalAssetsData = vaultV1.historicalState.totalAssets || [];
-    const sharePriceData = vaultV1.historicalState.sharePrice || [];
-    const sharePriceUsdData = vaultV1.historicalState.sharePriceUsd || [];
-    const totalSupplyData = vaultV1.historicalState.totalSupply || [];
+    const apyData = vaultData.historicalState.apy || [];
+    const netApyData = vaultData.historicalState.netApy || [];
+    const totalAssetsUsdData = vaultData.historicalState.totalAssetsUsd || [];
+    const totalAssetsData = vaultData.historicalState.totalAssets || [];
+    const sharePriceData = vaultData.historicalState.sharePrice || [];
+    const sharePriceUsdData = vaultData.historicalState.sharePriceUsd || [];
+    const totalSupplyData = vaultData.historicalState.totalSupply || [];
     
-    const assetDecimals = vaultV1.asset?.decimals || 18;
-    const assetPriceUsd = vaultV1.asset?.priceUsd || 0;
+    const assetDecimals = vaultData.asset?.decimals || 18;
+    const assetPriceUsd = vaultData.asset?.priceUsd || 0;
 
     const timestamps = new Set<number>();
     apyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
@@ -195,7 +197,6 @@ export async function GET(
         const totalAssetsRawValue = totalAssetsMap.get(timestamp);
         
         // Convert totalAssets from raw units to decimal
-        // Note: Morpho GraphQL API's historicalState.totalAssets returns values in raw units (wei/smallest unit)
         let totalAssets: number = 0;
         if (totalAssetsRawValue !== undefined && totalAssetsRawValue !== null) {
           let rawValue: number = 0;
@@ -206,15 +207,12 @@ export async function GET(
           }
           
           if (rawValue > 0 && !isNaN(rawValue) && isFinite(rawValue)) {
-            // Convert from raw units to decimal
             const convertedValue = rawValue / Math.pow(10, assetDecimals);
             
-            // Validation: Check if conversion makes sense by comparing with USD value
             if (typeof assetPriceUsd === 'number' && assetPriceUsd > 0 && 
                 typeof totalAssetsUsd === 'number' && totalAssetsUsd > 0) {
               const expectedFromUsd = totalAssetsUsd / assetPriceUsd;
               
-              // Check both converted value and raw value to see which makes more sense
               let ratioConverted = 0;
               let ratioRaw = 0;
               
@@ -225,83 +223,65 @@ export async function GET(
                 ratioRaw = expectedFromUsd / rawValue;
               }
               
-              // Use the value that's closer to 1 (more accurate)
-              // If converted value ratio is way off (>100 or <0.01), try raw value
               if (convertedValue > 0 && (ratioConverted > 100 || ratioConverted < 0.01)) {
-                // The raw value might already be in decimal format
-                // Check if raw value makes more sense
                 if (ratioRaw > 0.5 && ratioRaw < 2) {
                   totalAssets = rawValue;
                 } else {
-                  // Still use converted, but log that something might be off
                   totalAssets = convertedValue;
                 }
               } else if (convertedValue > 0) {
-                // Use converted value
                 totalAssets = convertedValue;
               } else {
-                // Fallback to raw value if converted is 0
                 totalAssets = rawValue;
               }
             } else {
-              // No validation possible, use converted value (or raw if converted is 0)
               totalAssets = convertedValue > 0 ? convertedValue : rawValue;
             }
           }
         }
         
-        // Calculate historical asset price from GraphQL data: assetPriceUsd = totalAssetsUsd / totalAssets
-        let historicalAssetPriceUsd = assetPriceUsd; // Fallback to current price
+        let historicalAssetPriceUsd = assetPriceUsd;
         if (totalAssets > 0 && totalAssetsUsd > 0) {
           historicalAssetPriceUsd = totalAssetsUsd / totalAssets;
         }
         
-        // Get historical sharePrice (in tokens) from GraphQL if available
         const historicalSharePriceRaw = sharePriceMap.get(timestamp);
         const historicalSharePriceUsd = sharePriceUsdMap.get(timestamp);
         const historicalTotalSupplyRaw = totalSupplyMap.get(timestamp);
         
-        // Calculate historical share price in tokens
         let sharePrice: number = 0;
         if (historicalSharePriceRaw !== undefined && historicalSharePriceRaw !== null) {
-          // sharePrice from GraphQL is in raw units (asset decimals), convert to decimal
           const rawValue = typeof historicalSharePriceRaw === 'string' 
             ? parseFloat(historicalSharePriceRaw)
             : (typeof historicalSharePriceRaw === 'number' ? historicalSharePriceRaw : 0);
           if (rawValue > 0) {
             sharePrice = rawValue / Math.pow(10, assetDecimals);
           }
-        } else if (totalAssets > 0 && historicalTotalSupplyRaw !== undefined && historicalTotalSupplyRaw !== null) {
-          // Calculate from totalAssets / totalSupply
-          // totalAssets is already in decimal (token units)
-          // totalSupply is in wei (18 decimals), convert to decimal
+        }
+        
+        if (sharePrice === 0 && totalAssets > 0 && historicalTotalSupplyRaw !== undefined && historicalTotalSupplyRaw !== null) {
           const totalSupplyRaw = typeof historicalTotalSupplyRaw === 'string' 
             ? parseFloat(historicalTotalSupplyRaw)
             : (typeof historicalTotalSupplyRaw === 'number' ? historicalTotalSupplyRaw : 0);
           if (totalSupplyRaw > 0) {
-            const totalSupplyDecimal = totalSupplyRaw / 1e18; // Shares are always 18 decimals
+            const totalSupplyDecimal = totalSupplyRaw / 1e18;
             if (totalSupplyDecimal > 0) {
               sharePrice = totalAssets / totalSupplyDecimal;
             }
           }
         }
         
-        // Calculate historical share price in USD
         let sharePriceUsd: number = 0;
         if (typeof historicalSharePriceUsd === 'number' && historicalSharePriceUsd > 0) {
-          // Use sharePriceUsd directly from GraphQL
           sharePriceUsd = historicalSharePriceUsd;
         } else if (sharePrice > 0 && historicalAssetPriceUsd > 0) {
-          // Calculate from sharePrice (tokens) * assetPriceUsd
           sharePriceUsd = sharePrice * historicalAssetPriceUsd;
         } else if (historicalTotalSupplyRaw !== undefined && historicalTotalSupplyRaw !== null) {
-          // Fallback: Calculate from totalAssetsUsd / totalSupply
-          // totalSupply is in wei (18 decimals), convert to decimal
           const totalSupplyRaw = typeof historicalTotalSupplyRaw === 'string' 
             ? parseFloat(historicalTotalSupplyRaw)
             : (typeof historicalTotalSupplyRaw === 'number' ? historicalTotalSupplyRaw : 0);
           if (totalSupplyRaw > 0) {
-            const totalSupplyDecimal = totalSupplyRaw / 1e18; // Shares are always 18 decimals
+            const totalSupplyDecimal = totalSupplyRaw / 1e18;
             if (totalSupplyDecimal > 0 && totalAssetsUsd > 0) {
               sharePriceUsd = totalAssetsUsd / totalSupplyDecimal;
             }
@@ -316,9 +296,9 @@ export async function GET(
           date: new Date(timestamp * 1000).toISOString().split('T')[0],
           totalAssetsUsd,
           totalAssets,
-          sharePrice: sharePrice || 0, // Historical share price in tokens from GraphQL or calculated
-          sharePriceUsd: sharePriceUsd || 0, // Historical share price in USD from GraphQL or calculated
-          assetPriceUsd: historicalAssetPriceUsd, // Historical price calculated from GraphQL data
+          sharePrice: sharePrice || 0,
+          sharePriceUsd: sharePriceUsd || 0,
+          assetPriceUsd: historicalAssetPriceUsd,
           apy: apyValue * 100,
           netApy: netApyValue * 100,
         };
@@ -353,4 +333,5 @@ export async function GET(
     );
   }
 }
+
 

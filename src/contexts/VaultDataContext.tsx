@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData } from '../types/vault';
+import { getVaultVersion } from '../lib/vault-utils';
 
 interface AllocationData {
   market?: {
@@ -36,6 +37,7 @@ interface VaultDataState {
     allocation: AllocationData[] | null;
     yield: YieldData | null;
     metadata: MetadataData | null;
+    adapters: string[] | null; // Adapter addresses for v2 vaults
     loading: boolean;
     error: string | null;
     lastFetched: number;
@@ -48,6 +50,7 @@ interface VaultDataContextType {
   fetchVaultData: (address: string, chainId?: number, forceRefresh?: boolean) => Promise<void>;
   getVaultData: (address: string) => MorphoVaultData | null;
   getVaultMarketIds: (address: string) => `0x${string}`[]; // Get market uniqueKeys for simulation
+  getVaultAdapters: (address: string) => `0x${string}`[]; // Get adapter addresses for v2 vaults
   isLoading: (address: string) => boolean;
   hasError: (address: string) => boolean;
   isStaleData: (address: string) => boolean;
@@ -129,10 +132,11 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       }));
 
       try {
-        // NOTE: APY and vault metrics use Graph API (via /api/vaults/[address]/complete)
+        // NOTE: APY and vault metrics use Graph API (via /api/vault/v1|v2/[address]/complete)
         // This provides APY, netApy, rewards, and other vault state data
         // Balance calculations use RPC (balanceOf + convertToAssets) - see WalletContext
-        const response = await fetch(`/api/vaults/${address}/complete?chainId=${effectiveChainId}`);
+        const vaultVersion = getVaultVersion(address);
+        const response = await fetch(`/api/vault/${vaultVersion}/${address}/complete?chainId=${effectiveChainId}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -140,10 +144,25 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         }
 
         const vaultInfo = data.data.vaultByAddress;
+        // For v2 vaults, also get the original vaultV2ByAddress to access adapters
+        // Note: vaultV2ByAddress is only present for v2 vaults after normalization
+        const vaultV2Info = data.data.vaultV2ByAddress;
         
         // Extract curator name from metadata
         const curatorAddress = vaultInfo.state?.curator;
         const curatorName = vaultInfo.metadata?.curators?.[0]?.name;
+        
+        // Extract adapter addresses for v2 vaults
+        // Adapters are only available in the original vaultV2ByAddress structure
+        const adapterAddresses: string[] = [];
+        if (vaultVersion === 'v2') {
+          // Try to get adapters from vaultV2ByAddress (original v2 structure)
+          if (vaultV2Info?.adapters?.items && Array.isArray(vaultV2Info.adapters.items)) {
+            adapterAddresses.push(...vaultV2Info.adapters.items
+              .map((adapter: { address: string }) => adapter.address)
+              .filter((addr: string) => addr && typeof addr === 'string' && addr.startsWith('0x')));
+          }
+        }
         
         // APY data from Graph API
         const currentNetApy = vaultInfo.state?.netApy || 0;
@@ -158,13 +177,30 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           : 'MORPHO'; // Default to MORPHO since most rewards are in MORPHO token
         
         // Share price handling
-        // sharePrice from GraphQL is in raw format (asset decimals), convert to decimal
+        // For v1 vaults: sharePrice from GraphQL is in raw format (asset decimals), convert to decimal
+        // For v2 vaults: sharePrice is already calculated in decimal format by the API route
         // This is sharePrice in tokens (not USD) - tokens per share
         const rawSharePrice = vaultInfo.state?.sharePrice;
         const assetDecimals = vaultInfo.asset?.decimals || 18;
-        const sharePriceInTokens = rawSharePrice 
-          ? parseFloat(formatUnits(BigInt(Math.floor(rawSharePrice)), assetDecimals))
-          : 1;
+        
+        let sharePriceInTokens = 1;
+        if (rawSharePrice !== undefined && rawSharePrice !== null) {
+          // Check if sharePrice is already in decimal format (v2) or raw format (v1)
+          // If it's a number and less than a reasonable threshold (e.g., 1000), assume it's already decimal
+          // Otherwise, treat it as raw and convert
+          if (typeof rawSharePrice === 'number' && rawSharePrice < 1000 && rawSharePrice > 0) {
+            // Already in decimal format (v2)
+            sharePriceInTokens = rawSharePrice;
+          } else {
+            // Raw format (v1), convert to decimal
+            try {
+              sharePriceInTokens = parseFloat(formatUnits(BigInt(Math.floor(rawSharePrice)), assetDecimals));
+            } catch {
+              sharePriceInTokens = 1;
+            }
+          }
+        }
+        
         const sharePriceUsd = vaultInfo.state?.sharePriceUsd || 0;
 
         // Build the vault object
@@ -173,6 +209,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           name: vaultInfo.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
           symbol: vaultInfo.asset?.symbol || 'UNKNOWN',
           chainId: effectiveChainId,
+          version: vaultVersion,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,
@@ -239,6 +276,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
             allocation: vaultInfo.state?.allocation || null,
             yield: vaultInfo as YieldData,
             metadata: vaultInfo.metadata as MetadataData,
+            adapters: adapterAddresses.length > 0 ? adapterAddresses : null,
             loading: false,
             error: null,
             lastFetched: Date.now(),
@@ -250,6 +288,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           ...prev,
           [address]: {
             ...prev[address],
+            adapters: null,
             loading: false,
             error: error instanceof Error ? error.message : 'Unknown error',
           }
@@ -339,11 +378,23 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       .filter((key: string) => key.startsWith('0x')) as `0x${string}`[];
   }, [vaultData]);
 
+  // Extract adapter addresses for v2 vaults
+  const getVaultAdapters = useCallback((address: string): `0x${string}`[] => {
+    const data = vaultData[address];
+    if (!data?.adapters || !Array.isArray(data.adapters)) {
+      return [];
+    }
+    
+    return data.adapters
+      .filter((addr: string) => addr && addr.startsWith('0x')) as `0x${string}`[];
+  }, [vaultData]);
+
   const value: VaultDataContextType = {
     vaultData,
     fetchVaultData: fetchCompleteVaultData,
     getVaultData,
     getVaultMarketIds,
+    getVaultAdapters,
     isLoading,
     hasError,
     isStaleData,

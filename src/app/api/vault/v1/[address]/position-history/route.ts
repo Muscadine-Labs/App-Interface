@@ -64,7 +64,6 @@ export async function GET(
     }
 
     const chainId = parseInt(chainIdParam, 10);
-    // Calculate time range based on period
     const now = Math.floor(Date.now() / 1000);
     // For 'all', set startTime to 0 (epoch start) to fetch all available data
     const startTime = period === 'all' ? 0 : (now - (PERIOD_SECONDS[period] || PERIOD_SECONDS['30d']));
@@ -119,7 +118,7 @@ export async function GET(
         },
       }),
       next: { 
-        revalidate: 300, // 5 minutes
+        revalidate: 300,
       },
     });
 
@@ -129,7 +128,6 @@ export async function GET(
 
     const data = await response.json();
 
-    // Check if errors are about position not being available
     const hasNotFoundError = data.errors?.some((err: GraphQLError) => 
       err.status === 'NOT_FOUND' || err.message?.includes('No results matching')
     );
@@ -156,7 +154,6 @@ export async function GET(
       });
     }
     
-    // Extract current position from state (if available)
     const currentPosition = vaultPosition.state ? {
       assets: vaultPosition.state.assets || 0,
       assetsUsd: vaultPosition.state.assetsUsd || 0,
@@ -177,18 +174,15 @@ export async function GET(
     const assetsUsdData = vaultPosition.historicalState.assetsUsd || [];
     const sharesData = vaultPosition.historicalState.shares || [];
     
-    // Create maps for quick lookup
     const assetsMap = new Map(assetsData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
     const assetsUsdMap = new Map(assetsUsdData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
     const sharesMap = new Map(sharesData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
     
-    // Get all unique timestamps
     const timestamps = new Set<number>();
     assetsData.forEach((point: { x: number }) => timestamps.add(point.x));
     assetsUsdData.forEach((point: { x: number }) => timestamps.add(point.x));
     sharesData.forEach((point: { x: number }) => timestamps.add(point.x));
     
-    // Get vault asset info to convert raw assets to decimal
     let assetDecimals = 18;
     try {
       const vaultQuery = `
@@ -226,7 +220,6 @@ export async function GET(
         }
       }
     } catch (error) {
-      // Log but continue with default decimals
       logger.error(
         'Failed to fetch vault asset info',
         error instanceof Error ? error : new Error(String(error)),
@@ -241,18 +234,15 @@ export async function GET(
         const assetsUsd = (assetsUsdMap.get(timestamp) ?? 0) as number;
         const sharesRaw = (sharesMap.get(timestamp) ?? 0) as number;
         
-        // Convert raw assets to decimal (assets are in raw units, convert using asset decimals)
         const assetsDecimal = assetsRaw / Math.pow(10, assetDecimals);
-        
-        // Convert shares from wei (shares are always 18 decimals)
         const sharesDecimal = sharesRaw / 1e18;
         
         return {
           timestamp,
           date: new Date(timestamp * 1000).toISOString().split('T')[0],
-          assets: assetsDecimal, // Token amount in decimal
-          assetsUsd, // USD value
-          shares: sharesDecimal, // Shares in decimal
+          assets: assetsDecimal,
+          assetsUsd,
+          shares: sharesDecimal,
         };
       })
       .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
@@ -286,4 +276,5 @@ export async function GET(
     );
   }
 }
+
 

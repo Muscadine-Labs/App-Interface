@@ -51,12 +51,36 @@ export interface GraphQLTransactionItem {
     shares?: string;
     assets?: string;
     assetsUsd?: number;
+    vault?: {
+      address: string;
+    };
   };
 }
 
 export interface GraphQLTransactionsData {
-  transactions: {
+  transactions?: {
     items: GraphQLTransactionItem[];
+  };
+  vaultV2transactions?: {
+    items: GraphQLV2TransactionItem[];
+  };
+}
+
+// V2 Transaction Item (different structure from V1)
+export interface GraphQLV2TransactionItem {
+  txHash: string;
+  timestamp: number;
+  type: string;
+  blockNumber?: number;
+  txIndex?: number;
+  vault?: {
+    address: string;
+  };
+  shares?: string;
+  data?: {
+    assets?: number;
+    sender?: string;
+    onBehalf?: string;
   };
 }
 
