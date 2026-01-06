@@ -13,28 +13,7 @@ import { usePrices } from '@/contexts/PriceContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
-
-// ERC20 ABI for balanceOf
-const ERC20_BALANCE_ABI = [
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
-// ERC4626 ABI for convertToAssets
-const ERC4626_ABI = [
-  {
-    inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
-    name: 'convertToAssets',
-    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -125,7 +104,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       // Get asset price (same as liquid assets)
       let assetPrice = 0;
       const symbolUpper = vaultData.symbol.toUpperCase();
-      if (symbolUpper === 'USDC' || symbolUpper === 'USDT' || symbolUpper === 'DAI') {
+      if (symbolUpper === 'USDC') {
         assetPrice = 1;
       } else if (symbolUpper === 'WETH') {
         assetPrice = ethPrice || 0;
@@ -213,6 +192,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   // Fetch hourly data for 7D period
   useEffect(() => {
+    const abortController = new AbortController();
+    
     const fetch7dHourlyPosition = async () => {
       if (!address) {
         setHourly7dPositionHistory([]);
@@ -222,7 +203,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       try {
         // Fetch 7D data with hourly intervals
         const response = await fetch(
-          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=7d`
+          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=7d`,
+          { signal: abortController.signal }
         );
         
         if (!response.ok) {
@@ -238,6 +220,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           setHourly7dPositionHistory([]);
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         // Silently fail, will fall back to daily data
         logger.warn(
           'Failed to fetch 7D hourly position data, falling back to daily',
@@ -253,10 +236,13 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     };
 
     fetch7dHourlyPosition();
+    return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, address]);
 
   // Fetch hourly data for 30D period
   useEffect(() => {
+    const abortController = new AbortController();
+    
     const fetch30dHourlyPosition = async () => {
       if (!address) {
         setHourly30dPositionHistory([]);
@@ -266,7 +252,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       try {
         // Fetch 30D data with hourly intervals
         const response = await fetch(
-          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=30d`
+          `/api/vaults/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=30d`,
+          { signal: abortController.signal }
         );
         
         if (!response.ok) {
@@ -282,6 +269,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           setHourly30dPositionHistory([]);
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         // Silently fail, will fall back to daily data
         logger.warn(
           'Failed to fetch 30D hourly position data, falling back to daily',
@@ -297,7 +285,21 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     };
 
     fetch30dHourlyPosition();
+    return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, address]);
+
+  // Get asset price for calculating USD value when assetsUsd is 0
+  const getAssetPrice = useMemo(() => {
+    const symbolUpper = vaultData.symbol.toUpperCase();
+    if (symbolUpper === 'USDC') {
+      return 1;
+    } else if (symbolUpper === 'WETH' || symbolUpper === 'ETH') {
+      return ethPrice || 0;
+    } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC' || symbolUpper === 'BTC') {
+      return btcPrice || 0;
+    }
+    return 0;
+  }, [vaultData.symbol, ethPrice, btcPrice]);
 
   // Use GraphQL position history data directly - no calculation needed
   const userDepositHistory = useMemo(() => {
@@ -312,13 +314,20 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     if (sourceData.length === 0) return [];
 
     // Map GraphQL position history to chart data format
-    return sourceData.map((point) => ({
-      timestamp: point.timestamp,
-      date: formatDate(point.timestamp),
-      valueUsd: Math.max(0, point.assetsUsd),
-      valueToken: Math.max(0, point.assets),
-    }));
-  }, [userPositionHistory, hourly7dPositionHistory, hourly30dPositionHistory, selectedTimeFrame]);
+    return sourceData.map((point) => {
+      // If assetsUsd is 0 but assets exists, calculate USD value from assets * assetPrice
+      let calculatedUsd = point.assetsUsd;
+      if (calculatedUsd === 0 && point.assets > 0 && getAssetPrice > 0) {
+        calculatedUsd = point.assets * getAssetPrice;
+      }
+      return {
+        timestamp: point.timestamp,
+        date: formatDate(point.timestamp),
+        valueUsd: Math.max(0, calculatedUsd),
+        valueToken: Math.max(0, point.assets),
+      };
+    });
+  }, [userPositionHistory, hourly7dPositionHistory, hourly30dPositionHistory, selectedTimeFrame, getAssetPrice]);
 
   // Calculate available time frames based on data range
   const availableTimeFrames = useMemo(() => {

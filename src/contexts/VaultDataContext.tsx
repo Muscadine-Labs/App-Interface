@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData } from '../types/vault';
 
 interface AllocationData {
@@ -161,7 +162,9 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         // This is sharePrice in tokens (not USD) - tokens per share
         const rawSharePrice = vaultInfo.state?.sharePrice;
         const assetDecimals = vaultInfo.asset?.decimals || 18;
-        const sharePriceInTokens = rawSharePrice ? rawSharePrice / Math.pow(10, assetDecimals) : 1;
+        const sharePriceInTokens = rawSharePrice 
+          ? parseFloat(formatUnits(BigInt(Math.floor(rawSharePrice)), assetDecimals))
+          : 1;
         const sharePriceUsd = vaultInfo.state?.sharePriceUsd || 0;
 
         // Build the vault object

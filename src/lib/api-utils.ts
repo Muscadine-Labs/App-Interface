@@ -1,0 +1,33 @@
+// Minimum timestamp for valid data (October 7, 2025 00:00:00 UTC)
+export const MIN_VALID_TIMESTAMP = 1759795200;
+
+// Valid periods for vault history queries
+export const VALID_PERIODS = ['7d', '30d', '90d', '1y', 'all'] as const;
+export type ValidPeriod = typeof VALID_PERIODS[number];
+
+// Validation helpers
+export function isValidChainId(chainId: string): boolean {
+  const id = parseInt(chainId, 10);
+  return !isNaN(id) && id > 0 && id <= 2147483647;
+}
+
+export function isValidPeriod(period: string): period is ValidPeriod {
+  return VALID_PERIODS.includes(period as ValidPeriod);
+}
+
+// Period configuration
+export const PERIOD_SECONDS: Record<string, number> = {
+  '7d': 7 * 24 * 60 * 60,
+  '30d': 30 * 24 * 60 * 60,
+  '90d': 90 * 24 * 60 * 60,
+  '1y': 365 * 24 * 60 * 60,
+};
+
+export const INTERVAL_MAP: Record<string, string> = {
+  '7d': 'HOUR',
+  '30d': 'HOUR',
+  '90d': 'DAY',
+  '1y': 'DAY',
+  'all': 'DAY',
+};
+

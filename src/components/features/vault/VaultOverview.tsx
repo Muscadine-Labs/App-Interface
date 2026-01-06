@@ -83,9 +83,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       if (chartType === 'apy') {
         firstNonZeroIndex = filtered.findIndex(d => d.apy > 0);
       } else if (chartType === 'tvl') {
-        firstNonZeroIndex = filtered.findIndex(d => 
-          (valueType === 'usd' ? d.totalAssetsUsd : (d.totalAssets || 0)) > 0
-        );
+        firstNonZeroIndex = filtered.findIndex(d => {
+          if (valueType === 'usd') {
+            // Check totalAssetsUsd, or calculate from totalAssets * assetPriceUsd if available
+            if (d.totalAssetsUsd > 0) return true;
+            if (d.totalAssets && d.totalAssets > 0 && d.assetPriceUsd && d.assetPriceUsd > 0) {
+              return (d.totalAssets * d.assetPriceUsd) > 0;
+            }
+            return false;
+          }
+          return (d.totalAssets || 0) > 0;
+        });
       }
       
       if (firstNonZeroIndex > 0) {
@@ -123,10 +131,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Memoize chart data for TVL chart to avoid recalculating on every render
   const tvlChartData = useMemo(() => {
     if (chartType !== 'tvl') return [];
-    return historyData.map(item => ({
-      ...item,
-      value: valueType === 'usd' ? item.totalAssetsUsd : (item.totalAssets || 0),
-    }));
+    return historyData.map(item => {
+      let usdValue = item.totalAssetsUsd;
+      // If totalAssetsUsd is 0 but totalAssets exists, calculate USD value from totalAssets * assetPriceUsd
+      if (valueType === 'usd' && usdValue === 0 && item.totalAssets && item.totalAssets > 0 && item.assetPriceUsd) {
+        usdValue = item.totalAssets * item.assetPriceUsd;
+      }
+      return {
+        ...item,
+        value: valueType === 'usd' ? usdValue : (item.totalAssets || 0),
+      };
+    });
   }, [historyData, chartType, valueType]);
 
   // Calculate Y-axis domain for Total Deposits chart

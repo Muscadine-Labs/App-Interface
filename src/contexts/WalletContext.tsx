@@ -7,6 +7,7 @@ import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, Alchem
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { VAULTS } from '@/lib/vaults';
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 
 export interface TokenBalance {
   address: string;
@@ -318,28 +319,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         timestamp: new Date().toISOString(),
       });
 
-      // ERC20 ABI for balanceOf
-      const ERC20_BALANCE_ABI = [
-        {
-          name: 'balanceOf',
-          type: 'function',
-          stateMutability: 'view',
-          inputs: [{ name: 'account', type: 'address' }],
-          outputs: [{ name: '', type: 'uint256' }],
-        },
-      ] as const;
-
-      // ERC4626 ABI for convertToAssets
-      const ERC4626_ABI = [
-        {
-          inputs: [{ internalType: 'uint256', name: 'shares', type: 'uint256' }],
-          name: 'convertToAssets',
-          outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-          stateMutability: 'view',
-          type: 'function',
-        },
-      ] as const;
-
       const rpcPositionPromises = vaults.map(async (vaultInfo) => {
         try {
           // Step 1: Get shares using balanceOf
@@ -387,7 +366,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           
           // Get asset price from prices API (same as liquid assets)
           let assetPrice = 0;
-          if (assetSymbol.toUpperCase() === 'USDC' || assetSymbol.toUpperCase() === 'USDT' || assetSymbol.toUpperCase() === 'DAI') {
+          if (assetSymbol.toUpperCase() === 'USDC') {
             assetPrice = 1; // Stablecoins are $1
           } else {
             // Map symbols to price API symbols
@@ -409,8 +388,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             } catch {
               // If price fetch fails, use sharePriceUsd as fallback
               const sharesDecimal = Number(sharesRaw) / 1e18;
-              if (sharesDecimal > 0 && sharePriceUsd > 0) {
-                assetPrice = sharePriceUsd / (assetsDecimal / sharesDecimal);
+              if (sharesDecimal > 0 && sharePriceUsd > 0 && assetsDecimal > 0) {
+                const priceRatio = assetsDecimal / sharesDecimal;
+                if (priceRatio > 0) {
+                  assetPrice = sharePriceUsd / priceRatio;
+                }
               }
             }
           }
@@ -522,8 +504,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           usdc: prices.usdc || 1, // USDC is pegged to $1
           cbbtc: prices.cbbtc || prices.btc || 0, // cbBTC uses BTC price
           weth: prices.weth || prices.eth || 0, // WETH uses ETH price
-          usdt: prices.usdt || 1, // USDT is pegged to $1
-          dai: prices.dai || 1, // DAI is pegged to $1
           ...Object.fromEntries(
             Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
           ),
@@ -596,8 +576,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       usdc: prices.usdc || 1,
       cbbtc: prices.cbbtc || prices.btc || 0,
       weth: prices.weth || prices.eth || 0,
-      usdt: prices.usdt || 1,
-      dai: prices.dai || 1,
       ...Object.fromEntries(
         Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
       ),
@@ -683,8 +661,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       usdc: prices.usdc || 1,
       cbbtc: prices.cbbtc || prices.btc || 0,
       weth: prices.weth || prices.eth || 0,
-      usdt: prices.usdt || 1,
-      dai: prices.dai || 1,
       ...Object.fromEntries(
         Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
       ),
@@ -787,15 +763,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const wethFormatted = wethBalance ? Number(wethBalance) / Math.pow(10, wethDecimalsValue) : 0;
   const wethUsdValue = wethFormatted * (tokenPrices.weth || tokenPrices.eth || 0);
   
-  // USDT and DAI USD values are calculated but not currently used in the final token balances array
-  // They're kept here for potential future use
-  // const usdtDecimalsValue = usdtDecimals || 6;
-  // const usdtFormatted = usdtBalance ? Number(usdtBalance) / Math.pow(10, usdtDecimalsValue) : 0;
-  // const usdtUsdValue = usdtFormatted * (tokenPrices.usdt || 1);
-  
-  // const daiDecimalsValue = daiDecimals || 18;
-  // const daiFormatted = daiBalance ? Number(daiBalance) / Math.pow(10, daiDecimalsValue) : 0;
-  // const daiUsdValue = daiFormatted * (tokenPrices.dai || 1);
 
   // Build token balances array - combine ETH, manually fetched tokens, and Alchemy tokens
   // Calculate USD values for Alchemy tokens
@@ -810,10 +777,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       price = tokenPrices.weth || tokenPrices.eth || 0;
     } else if (symbolUpper === 'USDC') {
       price = tokenPrices.usdc || 1;
-    } else if (symbolUpper === 'USDT') {
-      price = tokenPrices.usdt || 1;
-    } else if (symbolUpper === 'DAI') {
-      price = tokenPrices.dai || 1;
     } else {
       // Try to find price by symbol (case insensitive)
       price = tokenPrices[symbolUpper.toLowerCase()] || tokenPrices[token.symbol.toLowerCase()] || 0;

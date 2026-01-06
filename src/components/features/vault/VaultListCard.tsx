@@ -90,7 +90,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
             // Get asset price (same as liquid assets)
             let assetPrice = 0;
             const symbolUpper = vault.symbol.toUpperCase();
-            if (symbolUpper === 'USDC' || symbolUpper === 'USDT' || symbolUpper === 'DAI') {
+            if (symbolUpper === 'USDC') {
                 assetPrice = 1;
             } else if (symbolUpper === 'WETH') {
                 assetPrice = ethPrice || 0;
